@@ -1546,6 +1546,9 @@ class EventsController extends AppController
         if (isset($this->params['named']['includeRelatedTags']) && $this->params['named']['includeRelatedTags']) {
             $conditions['includeRelatedTags'] = 1;
         }
+        if (isset($this->request->data['includeRelatedTags'])) {
+            $conditions['includeRelatedTags'] = $this->request->data['includeRelatedTags'];
+        }
         if (!empty($this->params['named']['includeDecayScore'])) {
             $conditions['includeDecayScore'] = 1;
         }

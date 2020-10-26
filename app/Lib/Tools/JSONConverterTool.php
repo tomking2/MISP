@@ -103,7 +103,6 @@ class JSONConverterTool
             unset($event['Sighting']);
         }
 
-        unset($event['Event']['RelatedAttribute']);
         if (isset($event['Event']['RelatedEvent'])) {
             foreach ($event['Event']['RelatedEvent'] as $key => $value) {
                 unset($event['Event']['RelatedEvent'][$key]['Event']['user_id']);
