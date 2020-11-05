@@ -118,7 +118,7 @@ function genericPopup(url, popupTarget, callback) {
         if (callback !== undefined) {
             callback();
         }
-    });
+    }).fail(xhrFailCallback)
 }
 
 function screenshotPopup(url, title) {
@@ -224,30 +224,30 @@ function toggleSetting(e, setting, id) {
     e.preventDefault();
     e.stopPropagation();
     switch (setting) {
-    case 'warninglist_enable':
-        formID = '#WarninglistIndexForm';
-        dataDiv = '#WarninglistData';
-        replacementForm = baseurl + '/warninglists/getToggleField/';
-        searchString = 'enabled';
-        break;
-    case 'favourite_tag':
-        formID = '#FavouriteTagIndexForm';
-        dataDiv = '#FavouriteTagData';
-        replacementForm = baseurl + '/favourite_tags/getToggleField/';
-        searchString = 'Adding';
-        break;
-    case 'activate_object_template':
-        formID = '#ObjectTemplateIndexForm';
-        dataDiv = '#ObjectTemplateData';
-        replacementForm = baseurl + '/ObjectTemplates/getToggleField/';
-        searchString = 'activated';
-        break;
-    case 'noticelist_enable':
-        formID = '#NoticelistIndexForm';
-        dataDiv = '#NoticelistData';
-        replacementForm = baseurl + '/noticelists/getToggleField/';
-        searchString = 'enabled';
-        break;
+        case 'warninglist_enable':
+            formID = '#WarninglistIndexForm';
+            dataDiv = '#WarninglistData';
+            replacementForm = baseurl + '/warninglists/getToggleField/';
+            searchString = 'enabled';
+            break;
+        case 'favourite_tag':
+            formID = '#FavouriteTagIndexForm';
+            dataDiv = '#FavouriteTagData';
+            replacementForm = baseurl + '/favourite_tags/getToggleField/';
+            searchString = 'Adding';
+            break;
+        case 'activate_object_template':
+            formID = '#ObjectTemplateIndexForm';
+            dataDiv = '#ObjectTemplateData';
+            replacementForm = baseurl + '/ObjectTemplates/getToggleField/';
+            searchString = 'activated';
+            break;
+        case 'noticelist_enable':
+            formID = '#NoticelistIndexForm';
+            dataDiv = '#NoticelistData';
+            replacementForm = baseurl + '/noticelists/getToggleField/';
+            searchString = 'enabled';
+            break;
     }
     $(dataDiv).val(id);
     var formData = $(formID).serialize();
@@ -261,12 +261,12 @@ function toggleSetting(e, setting, id) {
             if (result.success) {
                 var setting = false;
                 if (result.success.indexOf(searchString) > -1) setting = true;
-                $('#checkBox_' + id).prop('checked', setting);
+                $('#' + e.target.id).prop('checked', setting);
             }
             handleGenericAjaxResponse(data);
         },
         complete:function() {
-            $.get(baseurl + replacementForm, function(data) {
+            $.get(replacementForm, function(data) {
                 $('#hiddenFormDiv').html(data);
             });
             $(".loading").hide();
@@ -2523,33 +2523,42 @@ function serverSettingsPostActivationScripts(name, setting, id) {
 }
 
 function serverSettingSubmitForm(name, setting, id) {
-    subGroup = getSubGroupFromSetting(setting);
+    var subGroup = getSubGroupFromSetting(setting);
     var formData = $(name + '_field').closest("form").serialize();
     $.ajax({
         data: formData,
         cache: false,
-        beforeSend: function (XMLHttpRequest) {
+        beforeSend: function () {
             $(".loading").show();
         },
-        success:function (data, textStatus) {
+        success: function (data) {
+            if (!data.saved) {
+                $(".loading").hide();
+                showMessage('fail', data.errors);
+                resetForms();
+                $('.inline-field-placeholder').hide();
+                return;
+            }
+
             $.ajax({
-                type:"get",
+                type: "get",
                 url: baseurl + "/servers/serverSettingsReloadSetting/" + setting + "/" + id,
-                success:function (data2, textStatus2) {
+                success: function (data2) {
                     $('#' + subGroup + "_" + id + '_row').replaceWith(data2);
                     $(".loading").hide();
                 },
-                error:function() {
+                error: function() {
                     showMessage('fail', 'Could not refresh the table.');
                 }
             });
         },
-        error:function() {
+        error: function() {
+            $(".loading").hide();
             showMessage('fail', 'Request failed for an unknown reason.');
             resetForms();
             $('.inline-field-placeholder').hide();
         },
-        type:"post",
+        type: "post",
         url: baseurl + "/servers/serverSettingsEdit/" + setting + "/" + id + "/" + 1
     });
     $(name + '_field').unbind("keyup");

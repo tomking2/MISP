@@ -4,6 +4,10 @@ App::uses('GpgTool', 'Tools');
 
 class Server extends AppModel
 {
+    const SETTING_CRITICAL = 0,
+        SETTING_RECOMMENDED = 1,
+        SETTING_OPTIONAL = 2;
+
     public $name = 'Server';
 
     public $actsAs = array('SysLogLogable.SysLogLogable' => array(
@@ -1100,7 +1104,33 @@ class Server extends AppModel
                                'test' => 'testBool',
                                'type' => 'boolean',
                                'null' => true
-                       )
+                       ),
+                    'attachment_scan_module' => [
+                        'level' => self::SETTING_OPTIONAL,
+                        'description' => __('Name of enrichment module that will be used for attachment malware scanning. This module must return av-signature or sb-signature object.'),
+                        'value' => '',
+                        'errorMessage' => '',
+                        'type' => 'string',
+                        'null' => true,
+                    ],
+                    'attachment_scan_hash_only' => [
+                        'level' => self::SETTING_OPTIONAL,
+                        'description' => __('Send to attachment scan module just file hash. This can be useful if module sends attachment to remote service and you don\'t want to leak real data.'),
+                        'value' => false,
+                        'errorMessage' => '',
+                        'test' => 'testBool',
+                        'type' => 'boolean',
+                        'null' => true,
+                    ],
+                    'attachment_scan_timeout' => [
+                        'level' => self::SETTING_OPTIONAL,
+                        'description' => __('How long to wait for scan results in seconds.'),
+                        'value' => 30,
+                        'errorMessage' => '',
+                        'test' => 'testForPositiveInteger',
+                        'type' => 'numeric',
+                        'null' => true,
+                    ]
                 ),
                 'GnuPG' => array(
                         'branch' => 1,
@@ -1278,6 +1308,23 @@ class Server extends AppModel
                                 'type' => 'string',
                                 'editable' => false,
                                 'redacted' => true
+                        ),
+                        'rest_client_enable_arbitrary_urls' => array(
+                            'level' => 0,
+                            'description' => __('Enable this setting if you wish for users to be able to query any arbitrary URL via the rest client. Keep in mind that queries are executed by the MISP server, so internal IPs in your MISP\'s network may be reachable.'),
+                            'value' => false,
+                            'errorMessage' => '',
+                            'test' => 'testBool',
+                            'type' => 'boolean',
+                            'null' => true
+                        ),
+                        'rest_client_baseurl' => array(
+                            'level' => 1,
+                            'description' => __('If left empty, the baseurl of your MISP is used. However, in some instances (such as port-forwarded VM installations) this will not work. You can override the baseurl with a url through which your MISP can reach itself (typically https://127.0.0.1 would work).'),
+                            'value' => false,
+                            'errorMessage' => '',
+                            'test' => null,
+                            'type' => 'string',
                         ),
                         'syslog' => array(
                             'level' => 0,
@@ -3424,6 +3471,14 @@ class Server extends AppModel
             return __('This setting has to be a number.');
         }
         return true;
+    }
+
+    public function testForPositiveInteger($value)
+    {
+        if ((is_int($value) && $value >= 0) || ctype_digit($value)) {
+            return true;
+        }
+        return __('The value has to be a whole number greater or equal 0.');
     }
 
     public function testForCookieTimeout($value)
