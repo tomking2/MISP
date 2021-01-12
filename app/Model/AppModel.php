@@ -86,7 +86,8 @@ class AppModel extends Model
         39 => false, 40 => false, 41 => false, 42 => false, 43 => false, 44 => false,
         45 => false, 46 => false, 47 => false, 48 => false, 49 => false, 50 => false,
         51 => false, 52 => false, 53 => false, 54 => false, 55 => false, 56 => false,
-        57 => false, 58 => false, 59 => false, 60 => false,
+        57 => false, 58 => false, 59 => false, 60 => false, 61 => false, 62 => false,
+        63 => true, 64 => false
     );
 
     public $advanced_updates_description = array(
@@ -1448,6 +1449,114 @@ class AppModel extends Model
                     INDEX `index` (`type`, `attribute_id`)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
                 break;
+            case 61:
+                $sqlArray[] = "CREATE TABLE IF NOT EXISTS `auth_keys` (
+                    `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+                    `uuid` varchar(40) COLLATE utf8mb4_unicode_ci NOT NULL,
+                    `authkey` varchar(72) CHARACTER SET ascii DEFAULT NULL,
+                    `authkey_start` varchar(4) CHARACTER SET ascii DEFAULT NULL,
+                    `authkey_end` varchar(4) CHARACTER SET ascii DEFAULT NULL,
+                    `created` int(10) unsigned NOT NULL,
+                    `expiration` int(10) unsigned NOT NULL,
+                    `user_id` int(10) unsigned NOT NULL,
+                    `comment` text COLLATE utf8mb4_unicode_ci,
+                    PRIMARY KEY (`id`),
+                    KEY `authkey_start` (`authkey_start`),
+                    KEY `authkey_end` (`authkey_end`),
+                    KEY `created` (`created`),
+                    KEY `expiration` (`expiration`),
+                    KEY `user_id` (`user_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+                break;
+            case 62:
+                $sqlArray[] = "ALTER TABLE `auth_keys` MODIFY COLUMN `authkey` varchar(72) CHARACTER SET ascii NOT NULL";
+                $sqlArray[] = "ALTER TABLE `auth_keys` MODIFY COLUMN `authkey_start` varchar(4) CHARACTER SET ascii NOT NULL";
+                $sqlArray[] = "ALTER TABLE `auth_keys` MODIFY COLUMN `authkey_end` varchar(4) CHARACTER SET ascii NOT NULL";
+                $sqlArray[] = "ALTER TABLE `auth_keys` MODIFY COLUMN `comment` text COLLATE utf8mb4_unicode_ci";
+                $sqlArray[] = "ALTER TABLE `attachment_scans` MODIFY COLUMN `malware_name` varchar(191) NULL";
+                break;
+            case 63:
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `distribution` tinyint(4) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `sharing_group_id` int(11);";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `org_id` int(11) NOT NULL;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `orgc_id` int(11) NOT NULL;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `default` tinyint(1) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `locked` tinyint(1) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `extends_uuid` varchar(40) COLLATE utf8_bin DEFAULT '';";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `extends_version` int(11) DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `published` tinyint(1) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_clusters` ADD `deleted` TINYINT(1) NOT NULL DEFAULT 0";
+                $sqlArray[] = "ALTER TABLE `roles` ADD `perm_galaxy_editor` tinyint(1) NOT NULL DEFAULT 0;";
+
+                $sqlArray[] = "UPDATE `roles` SET `perm_galaxy_editor`=1 WHERE `perm_tag_editor`=1;";
+                $sqlArray[] = "UPDATE `galaxy_clusters` SET `distribution`=3, `default`=1 WHERE `org_id`=0;";
+
+                $sqlArray[] = "ALTER TABLE `galaxy_reference` RENAME `galaxy_cluster_relations`;";
+                $sqlArray[] = "ALTER TABLE `galaxy_cluster_relations` ADD `galaxy_cluster_uuid` varchar(40) COLLATE utf8_bin NOT NULL;";
+                $sqlArray[] = "ALTER TABLE `galaxy_cluster_relations` ADD `distribution` tinyint(4) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_cluster_relations` ADD `sharing_group_id` int(11);";
+                $sqlArray[] = "ALTER TABLE `galaxy_cluster_relations` ADD `default` tinyint(1) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `galaxy_cluster_relations` DROP COLUMN `referenced_galaxy_cluster_value`;";
+                $sqlArray[] = "CREATE TABLE IF NOT EXISTS `galaxy_cluster_relation_tags` (
+                    `id` int(11) NOT NULL AUTO_INCREMENT,
+                    `galaxy_cluster_relation_id` int(11) NOT NULL,
+                    `tag_id` int(11) NOT NULL,
+                    PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8;";
+
+                $sqlArray[] = "ALTER TABLE `tags` ADD `is_galaxy` tinyint(1) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "ALTER TABLE `tags` ADD `is_custom_galaxy` tinyint(1) NOT NULL DEFAULT 0;";
+                $sqlArray[] = "UPDATE `tags` SET `is_galaxy`=1 WHERE `name` LIKE 'misp-galaxy:%';";
+                $sqlArray[] = "UPDATE `tags` SET `is_custom_galaxy`=1 WHERE `name` REGEXP '^misp-galaxy:[^:=\"]+=\"[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}\"$';";
+
+                $sqlArray[] = "ALTER TABLE `servers` ADD `push_galaxy_clusters` tinyint(1) NOT NULL DEFAULT 0 AFTER `push_sightings`;";
+                $sqlArray[] = "ALTER TABLE `servers` ADD `pull_galaxy_clusters` tinyint(1) NOT NULL DEFAULT 0 AFTER `push_galaxy_clusters`;";
+
+                $sqlArray[] = "CREATE TABLE IF NOT EXISTS `galaxy_cluster_blocklists` (
+                    `id` int(11) NOT NULL AUTO_INCREMENT,
+                    `cluster_uuid` varchar(40) COLLATE utf8_bin NOT NULL,
+                    `created` datetime NOT NULL,
+                    `cluster_info` TEXT CHARACTER SET utf8 COLLATE utf8_unicode_ci NOT NULL,
+                    `comment` TEXT CHARACTER SET utf8 COLLATE utf8_unicode_ci,
+                    `cluster_orgc` VARCHAR(255) CHARACTER SET utf8 COLLATE utf8_bin NOT NULL,
+                    PRIMARY KEY (`id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;";
+
+                $indexArray[] = array('galaxy_clusters', 'org_id');
+                $indexArray[] = array('galaxy_clusters', 'orgc_id');
+                $indexArray[] = array('galaxy_clusters', 'sharing_group_id');
+                $indexArray[] = array('galaxy_clusters', 'extends_uuid');
+                $indexArray[] = array('galaxy_clusters', 'extends_version');
+                $indexArray[] = array('galaxy_clusters', 'default');
+                $indexArray[] = array('galaxy_cluster_relations', 'galaxy_cluster_uuid');
+                $indexArray[] = array('galaxy_cluster_relations', 'sharing_group_id');
+                $indexArray[] = array('galaxy_cluster_relations', 'default');
+                $indexArray[] = array('galaxy_cluster_relation_tags', 'galaxy_cluster_relation_id');
+                $indexArray[] = array('galaxy_cluster_relation_tags', 'tag_id');
+                $indexArray[] = array('galaxy_cluster_blocklists', 'cluster_uuid');
+                $indexArray[] = array('galaxy_cluster_blocklists', 'cluster_orgc');
+                break;
+            case 64:
+                $sqlArray[] = "CREATE TABLE IF NOT EXISTS `cerebrates` (
+                    `id` int(11) NOT NULL AUTO_INCREMENT,
+                    `name` varchar(191) NOT NULL,
+                    `url` varchar(255) NOT NULL,
+                    `authkey` varchar(40) CHARACTER SET ascii COLLATE ascii_general_ci NULL,
+                    `open` tinyint(1) DEFAULT 0,
+                    `org_id` int(11) NOT NULL,
+                    `pull_orgs` tinyint(1) DEFAULT 0,
+                    `pull_sharing_groups` tinyint(1) DEFAULT 0,
+                    `self_signed` tinyint(1) DEFAULT 0,
+                    `cert_file` varchar(255) DEFAULT NULL,
+                    `client_cert_file` varchar(255) DEFAULT NULL,
+                    `internal` tinyint(1) NOT NULL DEFAULT 0,
+                    `skip_proxy` tinyint(1) NOT NULL DEFAULT 0,
+                    `description` text,
+                    PRIMARY KEY (`id`),
+                    KEY `url` (`url`),
+                    KEY `org_id` (`org_id`)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+                break;
             case 'fixNonEmptySharingGroupID':
                 $sqlArray[] = 'UPDATE `events` SET `sharing_group_id` = 0 WHERE `distribution` != 4;';
                 $sqlArray[] = 'UPDATE `attributes` SET `sharing_group_id` = 0 WHERE `distribution` != 4;';
@@ -1805,6 +1914,19 @@ class AppModel extends Model
         return true;
     }
 
+    public function valueIsJsonOrNull($value)
+    {
+        $field = array_keys($value);
+        $field = $field[0];
+        if (!is_null($value[$field])) {
+            $json_decoded = json_decode($value[$field]);
+            if ($json_decoded === null) {
+                return __('Invalid JSON.');
+            }
+        }
+        return true;
+    }
+
     public function valueIsID($value)
     {
         $field = array_keys($value);
@@ -1875,9 +1997,13 @@ class AppModel extends Model
             }
             $db_version = $db_version[0];
             $updates = $this->__findUpgrades($db_version['AdminSetting']['value']);
-            $job = $this->Job->find('first', array(
-                'conditions' => array('Job.id' => $processId)
-            ));
+            if ($processId) {
+                $job = $this->Job->find('first', array(
+                    'conditions' => array('Job.id' => $processId)
+                ));
+            } else {
+                $job = null;
+            }
             if (!empty($updates)) {
                 // Exit if updates are locked.
                 // This is not as reliable as a real lock implementation
@@ -2437,19 +2563,6 @@ class AppModel extends Model
         $this->elasticSearchClient = $client;
     }
 
-    public function checkVersionRequirements($versionString, $minVersion)
-    {
-        $version = explode('.', $versionString);
-        $minVersion = explode('.', $minVersion);
-        if (count($version) > $minVersion) {
-            return true;
-        }
-        if (count($version) == 1) {
-            return $minVersion <= $version;
-        }
-        return ($version[0] >= $minVersion[0] && $version[1] >= $minVersion[1] && $version[2] >= $minVersion[2]);
-    }
-
     // generate a generic subquery - options needs to include conditions
     public function subQueryGenerator($model, $options, $lookupKey, $negation = false)
     {
@@ -2592,12 +2705,12 @@ class AppModel extends Model
      * @return array[]
      * @throws JsonException
      */
-    protected function setupSyncRequest(array $server)
+    protected function setupSyncRequest(array $server, $model = 'Server')
     {
         $version = implode('.', $this->checkMISPVersion());
         $request = array(
             'header' => array(
-                'Authorization' => $server['Server']['authkey'],
+                'Authorization' => $server[$model]['authkey'],
                 'Accept' => 'application/json',
                 'Content-Type' => 'application/json',
                 'MISP-version' => $version,
@@ -2715,6 +2828,7 @@ class AppModel extends Model
             $temp = explode('&&', $filter);
             $filter = array();
             foreach ($temp as $f) {
+                $f = strval($f);
                 if ($f[0] === '!') {
                     $filter['NOT'][] = substr($f, 1);
                 } else {
@@ -2726,6 +2840,7 @@ class AppModel extends Model
         if (!isset($filter['OR']) && !isset($filter['NOT']) && !isset($filter['AND'])) {
             $temp = array();
             foreach ($filter as $param) {
+                $param = strval($param);
                 if (!empty($param)) {
                     if ($param[0] === '!') {
                         $temp['NOT'][] = substr($param, 1);

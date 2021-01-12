@@ -39,6 +39,7 @@ App::uses('RequestRearrangeTool', 'Tools');
  * @throws ForbiddenException // TODO Exception
  * @property ACLComponent $ACL
  * @property RestResponseComponent $RestResponse
+ * @property CRUDComponent $CRUD
  */
 class AppController extends Controller
 {
@@ -48,8 +49,8 @@ class AppController extends Controller
 
     public $helpers = array('Utility', 'OrgImg', 'FontAwesome', 'UserName', 'DataPathCollector');
 
-    private $__queryVersion = '115';
-    public $pyMispVersion = '2.4.134';
+    private $__queryVersion = '120';
+    public $pyMispVersion = '2.4.135';
     public $phpmin = '7.2';
     public $phprec = '7.4';
     public $pythonmin = '3.6';
@@ -60,6 +61,7 @@ class AppController extends Controller
     public $sql_dump = false;
 
     private $isRest = null;
+    public $restResponsePayload = null;
 
     // Used for _isAutomation(), a check that returns true if the controller & action combo matches an action that is a non-xml and non-json automation method
     // This is used to allow authentication via headers for methods not covered by _isRest() - as that only checks for JSON and XML formats
@@ -70,6 +72,9 @@ class AppController extends Controller
     );
 
     protected $_legacyParams = array();
+
+    /** @var User */
+    public $User;
 
     public function __construct($id = false, $table = null, $ds = null)
     {
@@ -102,17 +107,10 @@ class AppController extends Controller
             'RateLimit',
             'IndexFilter',
             'Deprecation',
-            'RestSearch'
+            'RestSearch',
+            'CRUD'
             //,'DebugKit.Toolbar'
     );
-
-    private function __isApiFunction($controller, $action)
-    {
-        if (isset($this->automationArray[$controller]) && in_array($action, $this->automationArray[$controller])) {
-            return true;
-        }
-        return false;
-    }
 
     public function beforeFilter()
     {
@@ -139,6 +137,15 @@ class AppController extends Controller
                 $this->_stop();
             }
         }
+        if (Configure::read('Security.check_sec_fetch_site_header')) {
+            $secFetchSite = $this->request->header('Sec-Fetch-Site');
+            if ($secFetchSite !== false && $secFetchSite !== 'same-origin' && ($this->request->is('post') || $this->request->is('put') || $this->request->is('ajax'))) {
+                throw new MethodNotAllowedException("POST, PUT and AJAX requests are allowed just from same origin.");
+            }
+        }
+        if (Configure::read('Security.disable_browser_cache')) {
+            $this->response->disableCache();
+        }
         $this->response->header('X-XSS-Protection', '1; mode=block');
 
         if (!empty($this->params['named']['sql'])) {
@@ -150,8 +157,8 @@ class AppController extends Controller
 
         $this->set('ajax', $this->request->is('ajax'));
         $this->set('queryVersion', $this->__queryVersion);
-        $this->loadModel('User');
-        $auth_user_fields = $this->User->describeAuthFields();
+        $this->User = ClassRegistry::init('User');
+
         $language = Configure::read('MISP.language');
         if (!empty($language) && $language !== 'eng') {
             Configure::write('Config.language', $language);
@@ -170,18 +177,19 @@ class AppController extends Controller
             $this->Server->serverSettingsSaveValue('MISP.uuid', CakeText::uuid());
         }
         // check if Apache provides kerberos authentication data
+        $authUserFields = $this->User->describeAuthFields();
         $envvar = Configure::read('ApacheSecureAuth.apacheEnv');
-        if (isset($_SERVER[$envvar])) {
+        if ($envvar && isset($_SERVER[$envvar])) {
             $this->Auth->className = 'ApacheSecureAuth';
             $this->Auth->authenticate = array(
                 'Apache' => array(
                     // envvar = field returned by Apache if user is authenticated
                     'fields' => array('username' => 'email', 'envvar' => $envvar),
-                    'userFields' => $auth_user_fields
+                    'userFields' => $authUserFields,
                 )
             );
         } else {
-            $this->Auth->authenticate['Form']['userFields'] = $auth_user_fields;
+            $this->Auth->authenticate[AuthComponent::ALL]['userFields'] = $authUserFields;
         }
         if (!empty($this->params['named']['disable_background_processing'])) {
             Configure::write('MISP.background_jobs', 0);
@@ -458,6 +466,7 @@ class AppController extends Controller
             $this->set('isAclTagger', $role['perm_tagger']);
             $this->set('isAclTagEditor', $role['perm_tag_editor']);
             $this->set('isAclTemplate', $role['perm_template']);
+            $this->set('isAclGalaxyEditor', !empty($role['perm_galaxy_editor']));
             $this->set('isAclSharingGroup', $role['perm_sharing_group']);
             $this->set('isAclSighting', isset($role['perm_sighting']) ? $role['perm_sighting'] : false);
             $this->set('isAclZmq', isset($role['perm_publish_zmq']) ? $role['perm_publish_zmq'] : false);
@@ -592,7 +601,7 @@ class AppController extends Controller
 
     public function afterFilter()
     {
-        if ($this->isApiAuthed && $this->_isRest()) {
+        if ($this->isApiAuthed && $this->_isRest() && $this->Session->started()) {
             $this->Session->destroy();
         }
     }
@@ -676,43 +685,9 @@ class AppController extends Controller
 
     public $userRole = null;
 
-    protected function _isJson($data=false)
-    {
-        if ($data) {
-            return (json_decode($data) != null) ? true : false;
-        }
-        return $this->request->header('Accept') === 'application/json' || $this->RequestHandler->prefers() === 'json';
-    }
-
-    protected function _isCsv($data=false)
-    {
-        if ($this->params['ext'] === 'csv' || $this->request->header('Accept') === 'application/csv' || $this->RequestHandler->prefers() === 'csv') {
-            return true;
-        } else {
-            return false;
-        }
-    }
-
     protected function _isRest()
     {
-        // This method is surprisingly slow and called many times for one request, so it make sense to cache the result.
-        if ($this->isRest !== null) {
-            return $this->isRest;
-        }
-
-        $api = $this->__isApiFunction($this->request->params['controller'], $this->request->params['action']);
-        if (isset($this->RequestHandler) && ($api || $this->RequestHandler->isXml() || $this->_isJson() || $this->_isCsv())) {
-            if ($this->_isJson()) {
-                if (!empty($this->request->input()) && empty($this->request->input('json_decode'))) {
-                    throw new MethodNotAllowedException('Invalid JSON input. Make sure that the JSON input is a correctly formatted JSON string. This request has been blocked to avoid an unfiltered request.');
-                }
-            }
-            $this->isRest = true;
-            return true;
-        } else {
-            $this->isRest = false;
-            return false;
-        }
+        return $this->IndexFilter->isRest();
     }
 
     protected function _isAutomation()
@@ -750,11 +725,6 @@ class AppController extends Controller
     protected function _isSiteAdmin()
     {
         return $this->userRole['perm_site_admin'];
-    }
-
-    protected function _checkOrg()
-    {
-        return $this->Auth->user('org_id');
     }
 
     protected function _getApiAuthUser(&$key, &$exception)
@@ -882,8 +852,14 @@ class AppController extends Controller
 
     public function checkAuthUser($authkey)
     {
-        $this->loadModel('User');
-        $user = $this->User->getAuthUserByAuthkey($authkey);
+        if (Configure::read('Security.advanced_authkeys')) {
+            $this->loadModel('AuthKey');
+            $user = $this->AuthKey->getAuthUserByAuthKey($authkey);
+        } else {
+            $this->loadModel('User');
+            $user = $this->User->getAuthUserByAuthKey($authkey);
+        }
+
         if (empty($user)) {
             return false;
         }
@@ -1101,6 +1077,7 @@ class AppController extends Controller
                 if ($user['User']) {
                     unset($user['User']['gpgkey']);
                     unset($user['User']['certif_public']);
+                    $this->User->updateLoginTimes($user['User']);
                     $this->Session->renew();
                     $this->Session->write(AuthComponent::$sessionKey, $user['User']);
                     if (Configure::read('MISP.log_auth')) {
@@ -1179,16 +1156,28 @@ class AppController extends Controller
         $this->redirect($targetRoute);
     }
 
-    protected function _loadAuthenticationPlugins() {
+    /**
+     * @throws Exception
+     */
+    protected function _loadAuthenticationPlugins()
+    {
         // load authentication plugins from Configure::read('Security.auth')
         $auth = Configure::read('Security.auth');
-
-        if (!$auth) return;
-
+        if (!$auth) {
+            return;
+        }
+        if (!is_array($auth)) {
+            throw new Exception("`Security.auth` config value must be array.");
+        }
         $this->Auth->authenticate = array_merge($auth, $this->Auth->authenticate);
+        // Disable Form authentication
+        if (Configure::read('Security.auth_enforced')) {
+            unset($this->Auth->authenticate['Form']);
+        }
         if ($this->Auth->startup($this)) {
             $user = $this->Auth->user();
             if ($user) {
+                $this->User->updateLoginTimes($user);
                 // User found in the db, add the user info to the session
                 $this->Session->renew();
                 $this->Session->write(AuthComponent::$sessionKey, $user);
@@ -1273,7 +1262,7 @@ class AppController extends Controller
         if ($returnFormat === 'download') {
             $returnFormat = 'json';
         }
-        if ($returnFormat === 'stix' && $this->_isJson()) {
+        if ($returnFormat === 'stix' && $this->IndexFilter->isJson()) {
             $returnFormat = 'stix-json';
         }
         $elementCounter = 0;

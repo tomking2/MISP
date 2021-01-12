@@ -35,7 +35,7 @@ function rgb2hex(rgb) {
 }
 
 function xhrFailCallback(xhr) {
-    if (xhr.status === 403) {
+    if (xhr.status === 403 || xhr.status === 405) {
         showMessage('fail', 'Not allowed.');
     } else if (xhr.status === 404) {
         showMessage('fail', 'Resource not found.');
@@ -91,13 +91,14 @@ function flexibleAddSighting(clicked, type, attribute_id, event_id, placement) {
     }, 1000);
 }
 
-function publishPopup(id, type) {
+function publishPopup(id, type, scope) {
+    scope = scope === undefined ? 'events' : scope;
     var action = "alert";
     if (type == "publish") action = "publish";
     if (type == "unpublish") action = "unpublish";
     if (type == "sighting") action = "publishSightings";
     var destination = 'attributes';
-    $.get(baseurl + "/events/" + action + "/" + id, function(data) {
+    $.get(baseurl + "/" + scope + "/" + action + "/" + id, function(data) {
         $("#confirmation_box").html(data);
         openPopup("#confirmation_box");
     });
@@ -229,6 +230,16 @@ function toggleSetting(e, setting, id) {
             dataDiv = '#WarninglistData';
             replacementForm = baseurl + '/warninglists/getToggleField/';
             searchString = 'enabled';
+            var successCallback = function(setting) {
+                var icon = $(e.target).closest('tr').find('[data-path="Warninglist.enabled"] .fa')
+                if (setting) {
+                    icon.removeClass('fa-times').addClass('fa-check')
+                    $(e.target).removeClass('fa-play').addClass('fa-stop')
+                } else {
+                    icon.removeClass('fa-check').addClass('fa-times')
+                    $(e.target).removeClass('fa-stop').addClass('fa-play')
+                }
+            }
             break;
         case 'favourite_tag':
             formID = '#FavouriteTagIndexForm';
@@ -261,7 +272,11 @@ function toggleSetting(e, setting, id) {
             if (result.success) {
                 var setting = false;
                 if (result.success.indexOf(searchString) > -1) setting = true;
-                $('#' + e.target.id).prop('checked', setting);
+                if (typeof successCallback === 'function') {
+                    successCallback(setting)
+                } else {
+                    $('#' + e.target.id).prop('checked', setting);
+                }
             }
             handleGenericAjaxResponse(data);
         },
@@ -286,18 +301,18 @@ function initiatePasswordReset(id) {
     $.get(baseurl + "/users/initiatePasswordReset/" + id, function(data) {
         $("#confirmation_box").html(data);
         openPopup("#confirmation_box");
-    });
+    }).fail(xhrFailCallback)
 }
 
 function submitPasswordReset(id) {
     var formData = $('#PromptForm').serialize();
     var url = baseurl + "/users/initiatePasswordReset/" + id;
     $.ajax({
-        beforeSend: function (XMLHttpRequest) {
+        beforeSend: function () {
             $(".loading").show();
         },
         data: formData,
-        success:function (data, textStatus) {
+        success: function (data) {
             handleGenericAjaxResponse(data);
         },
         complete:function() {
@@ -305,9 +320,9 @@ function submitPasswordReset(id) {
             $("#confirmation_box").fadeOut();
             $("#gray_out").fadeOut();
         },
-        type:"post",
+        type: "post",
         cache: false,
-        url:url,
+        url: url,
     });
 }
 
@@ -1191,14 +1206,45 @@ function clickCreateButton(event, type) {
     simplePopup(baseurl + "/" + destination + "/add/" + event);
 }
 
-function openGenericModal(url) {
+function openGenericModal(url, modalData, callback) {
     $.ajax({
         type: "get",
         url: url,
         success: function (data) {
             $('#genericModal').remove();
-            $('body').append(data);
-            $('#genericModal').modal();
+            var htmlData;
+            if (modalData !== undefined) {
+                var $modal = $('<div id="genericModal" class="modal hide fade" tabindex="-1" role="dialog" aria-labelledby="genericModalLabel" aria-hidden="true"></div>');
+                if (modalData.classes !== undefined) {
+                    $modal.addClass(modalData.classes);
+                }
+                var $modalHeaderText = $('<h3 id="genericModalLabel"></h3>');
+                if (modalData.header !== undefined) {
+                    $modalHeaderText.text(modalData.header)
+                }
+                var $modalHeader = $('<div class="modal-header"></div>').append(
+                    $('<button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>'),
+                    $modalHeaderText
+                );
+                var $modalBody = $('<div class="modal-body"></div>').html(data);
+                if (modalData.bodyStyle !== undefined) {
+                    $modalBody.css(modalData.bodyStyle);
+                }
+                $modal.append(
+                    $modalHeader,
+                    $modalBody
+                );
+                htmlData = $modal[0].outerHTML;
+            } else {
+                htmlData = data;
+            }
+            $('body').append(htmlData);
+            $('#genericModal').modal().on('shown', function() {
+                if (callback !== undefined) {
+                    callback();
+                }
+            });
+
         },
         error: function (data, textStatus, errorThrown) {
             showMessage('fail', textStatus + ": " + errorThrown);
@@ -2160,27 +2206,70 @@ function runIndexFilter(element) {
     window.location.href = url;
 }
 
-function runIndexQuickFilter(preserveParams) {
-    if (!passedArgsArray) {
+function cancelSearch() {
+    $('#quickFilterField').val('');
+    $('#quickFilterButton').click();
+}
+
+function runIndexQuickFilter(preserveParams, url, target) {
+    if (typeof passedArgsArray === "undefined") {
         var passedArgsArray = [];
     }
-    var searchKey = 'searchall';
-    if ($('#quickFilterField').data('searchkey')) {
-        searchKey = $('#quickFilterField').data('searchkey');
+    var $quickFilterField = $('#quickFilterField');
+    var searchKey;
+    if ($quickFilterField.data('searchkey')) {
+        searchKey = $quickFilterField.data('searchkey');
+    } else {
+        searchKey = 'searchall';
     }
-    if ( $('#quickFilterField').val().trim().length > 0){
-        passedArgsArray[searchKey] = encodeURIComponent($('#quickFilterField').val().trim());
+    passedArgsArray[searchKey] = encodeURIComponent($quickFilterField.val().trim());
+    if (typeof url === "undefined") {
+        url = here;
     }
-    url = here;
-    if (typeof preserveParams !== "undefined") {
+    if (typeof preserveParams === "string") {
+        preserveParams = String(preserveParams);
+        if (!preserveParams.startsWith('/')) {
+            preserveParams = '/' + preserveParams;
+        }
         url += preserveParams;
+    } else if (typeof preserveParams === "object") {
+        for (var key in preserveParams) {
+            if (typeof key == 'number') {
+                url += "/" + preserveParams[key];
+            } else if (key !== 'page') {
+                if (key !== searchKey || !(searchKey in passedArgsArray)) {
+                    url += "/" + key + ":" + preserveParams[key];
+                }
+            }
+        }
     }
     for (var key in passedArgsArray) {
-        if (key !== 'page') {
+        if (typeof key == 'number') {
+            url += "/" + passedArgsArray[key];
+        } else if (key !== 'page') {
             url += "/" + key + ":" + passedArgsArray[key];
         }
     }
-    window.location.href = url;
+    if (target !== undefined) {
+        $.ajax({
+            beforeSend: function () {
+                $(".loading").show();
+            },
+            success: function (data) {
+                $(target).html(data);
+            },
+            error: function() {
+                showMessage('fail', 'Could not fetch the requested data.');
+            },
+            complete: function() {
+                $(".loading").hide();
+            },
+            type: "get",
+            url: url
+        });
+    } else {
+        window.location.href = url;
+    }
 }
 
 function executeFilter(passedArgs, url) {
@@ -2715,6 +2804,14 @@ function freetextImportResultsSubmit(id, count) {
 }
 
 function moduleResultsSubmit(id) {
+    var attributeValue = function ($attributeValue) {
+        if ($attributeValue.find("[data-full]").length) {
+            return $attributeValue.find("[data-full]").data('full');
+        } else {
+            return $attributeValue.text()
+        }
+    }
+
     var typesWithData = ['attachment', 'malware-sample'];
     var data_collected = {};
     var temp;
@@ -2729,7 +2826,7 @@ function moduleResultsSubmit(id) {
     }
     if ($('.MISPObject').length) {
         var objects = [];
-        $(".MISPObject").each(function(o) {
+        $(".MISPObject").each(function() {
             var object_uuid = $(this).find('.ObjectUUID').text();
             temp = {
                 uuid: object_uuid,
@@ -2772,14 +2869,14 @@ function moduleResultsSubmit(id) {
             }
             if ($(this).find('.ObjectAttribute').length) {
                 var object_attributes = [];
-                $(this).find('.ObjectAttribute').each(function(a) {
+                $(this).find('.ObjectAttribute').each(function() {
                     var attribute_type = $(this).find('.AttributeType').text();
-                    attribute = {
+                    var attribute = {
                         import_attribute: $(this).find('.ImportMISPObjectAttribute')[0].checked,
                         object_relation: $(this).find('.ObjectRelation').text(),
                         category: $(this).find('.AttributeCategory').text(),
                         type: attribute_type,
-                        value: $(this).find('.AttributeValue').text(),
+                        value: attributeValue($(this).find('.AttributeValue')),
                         uuid: $(this).find('.AttributeUuid').text(),
                         to_ids: $(this).find('.AttributeToIds')[0].checked,
                         disable_correlation: $(this).find('.AttributeDisableCorrelation')[0].checked,
@@ -2838,7 +2935,7 @@ function moduleResultsSubmit(id) {
                 import_attribute: $(this).find('.ImportMISPAttribute')[0].checked,
                 category: category_value,
                 type: type_value,
-                value: $(this).find('.AttributeValue').text(),
+                value: attributeValue($(this).find('.AttributeValue')),
                 uuid: $(this).find('.AttributeUuid').text(),
                 to_ids: $(this).find('.AttributeToIds')[0].checked,
                 disable_correlation: $(this).find('.AttributeDisableCorrelation')[0].checked,
@@ -4282,7 +4379,6 @@ function addGalaxyListener(id) {
     var target_type = $(id).data('target-type');
     var target_id = $(id).data('target-id');
     var local = $(id).data('local');
-    console.log(local);
     if (local) {
         local = 1;
     } else {
@@ -4652,14 +4748,6 @@ function checkNoticeList(type) {
 
 }
 
-function quickSelect(target) {
-    var range = document.createRange();
-    var selection = window.getSelection();
-    range.selectNodeContents(target);
-    selection.removeAllRanges();
-    selection.addRange(range);
-}
-
 $(document).ready(function() {
     // Show popover for disabled input that contains `data-disabled-reason`.
     $('input:disabled[data-disabled-reason]').popover("destroy").popover({
@@ -4668,6 +4756,14 @@ $(document).ready(function() {
         trigger: 'hover',
         content: function () {
             return $(this).data('disabled-reason');
+        }
+    });
+    $('#PasswordPopover').popover("destroy").popover({
+        placement: 'right',
+        html: 'true',
+        trigger: 'hover',
+        content: function () {
+            return $(this).data('content');
         }
     });
     $(".queryPopover").click(function() {
@@ -4696,11 +4792,6 @@ $(document).ready(function() {
             cache: false,
             url: baseurl + '/admin/roles/set_default/' + (state ? id : ""),
         });
-    });
-    // clicking on an element with this class will select all of its contents in a
-    // single click
-    $('.quickSelect').click(function() {
-        quickSelect(this);
     });
     $('.add_object_attribute_row').click(function() {
         var template_id = $(this).data('template-id');
@@ -4799,6 +4890,15 @@ $(document.body).on('keydown', 'textarea', function(e) {
             $(e.target.form).submit();
         }
     }
+});
+
+// Clicking on an element with this class will select all of its contents in a single click
+$(document.body).on('click', '.quickSelect', function() {
+    var range = document.createRange();
+    var selection = window.getSelection();
+    range.selectNodeContents(this);
+    selection.removeAllRanges();
+    selection.addRange(range);
 });
 
 function queryEventLock(event_id, user_org_id) {
@@ -5059,7 +5159,7 @@ function changeTaxonomyRequiredState(checkbox) {
     });
 }
 
-function fetchFormDataAjax(url, callback) {
+function fetchFormDataAjax(url, callback, errorCallback) {
     var formData = false;
     $.ajax({
         data: '[]',
@@ -5068,6 +5168,9 @@ function fetchFormDataAjax(url, callback) {
         },
         error:function() {
             handleGenericAjaxResponse({'saved':false, 'errors':['Request failed due to an unexpected error.']});
+            if (errorCallback !== undefined) {
+                errorCallback();
+            }
         },
         async: false,
         type:"get",
@@ -5282,6 +5385,38 @@ function setHomePage() {
 function changeLocationFromIndexDblclick(row_index) {
     var href = $('table tr[data-row-id=\"' + row_index + '\"] .dblclickActionElement').attr('href')
     window.location = href;
+}
+
+function loadClusterRelations(clusterId) {
+    if (clusterId !== undefined) {
+        openGenericModal(
+            baseurl + '/GalaxyClusters/viewRelationTree/' + clusterId,
+            {
+                header: "Cluster relation tree",
+                classes: "modal-xl",
+                bodyStyle: {"min-height": "700px"}
+            },
+            function() {
+                if (window.buildTree !== undefined) {
+                    buildTree();
+                }
+            }
+        );
+    }
+}
+
+function submitGenericFormInPlace() {
+    $.ajax({
+        type: "POST",
+        url: $('.genericForm').attr('action'),
+        data: $('.genericForm').serialize(), // serializes the form's elements.
+        success: function(data)
+        {
+            $('#genericModal').remove();
+            $('body').append(data);
+            $('#genericModal').modal();
+        }
+    });
 }
 
 function openIdSelection(clicked, scope, action) {

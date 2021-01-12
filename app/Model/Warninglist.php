@@ -234,15 +234,15 @@ class Warninglist extends AppModel
         if ($this->save($warninglist)) {
             $db = $this->getDataSource();
             $values = array();
+            $warninglistId = (int)$this->id;
             foreach ($list['list'] as $value) {
                 if (!empty($value)) {
-                    $values[] = array('value' => $value, 'warninglist_id' => $this->id);
+                    $values[] = array('value' => $value, 'warninglist_id' => $warninglistId);
                 }
             }
             unset($list['list']);
             $count = count($values);
-            $values = array_chunk($values, 100);
-            foreach ($values as $chunk) {
+            foreach (array_chunk($values, 500) as $chunk) {
                 $result = $db->insertMulti('warninglist_entries', array('value', 'warninglist_id'), $chunk);
             }
             if ($result) {
@@ -253,14 +253,14 @@ class Warninglist extends AppModel
             if (!empty($list['matching_attributes'])) {
                 $values = array();
                 foreach ($list['matching_attributes'] as $type) {
-                    $values[] = array('type' => $type, 'warninglist_id' => $this->id);
+                    $values[] = array('type' => $type, 'warninglist_id' => $warninglistId);
                 }
                 $this->WarninglistType->saveMany($values);
             } else {
                 $this->WarninglistType->create();
-                $this->WarninglistType->save(array('WarninglistType' => array('type' => 'ALL', 'warninglist_id' => $this->id)));
+                $this->WarninglistType->save(array('WarninglistType' => array('type' => 'ALL', 'warninglist_id' => $warninglistId)));
             }
-            return $this->id;
+            return $warninglistId;
         } else {
             return $this->validationErrors;
         }
@@ -279,8 +279,10 @@ class Warninglist extends AppModel
             return false;
         }
 
-        if (method_exists($redis, 'unlink')) {
-            // Delete attributes cache non blocking way if available
+        // Unlink is non blocking way how to delete keys from Redis, but it must be supported by PHP extension and
+        // Redis itself
+        $unlinkSupported = method_exists($redis, 'unlink') && $redis->unlink(null) !== false;
+        if ($unlinkSupported) {
             $redis->unlink($redis->keys('misp:wlc:*'));
         } else {
             $redis->del($redis->keys('misp:wlc:*'));

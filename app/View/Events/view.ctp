@@ -15,7 +15,7 @@
     <?php
         if (Configure::read('MISP.showorg') || $isAdmin):
     ?>
-            <div style="float:right;"><?php echo $this->OrgImg->getOrgImg(array('name' => $event['Orgc']['name'], 'id' => $event['Orgc']['id'], 'size' => 48)); ?></div>
+            <div style="float:right;"><?= $this->OrgImg->getOrgLogo($event['Orgc'], 48); ?></div>
     <?php
         endif;
         $title = h($event['Event']['info']);
@@ -25,11 +25,11 @@
             'key' => 'UUID',
             'html' => sprintf('<span class="quickSelect">%s</span> %s',
                 $event['Event']['uuid'],
-                sprintf('<a href="%s/events/add/extends:%s" class="btn btn-inverse noPrint" style="line-height: 10px; padding: 4px 4px; margin-left: 0.3em" title="%s">+</a>',
+                $isAclAdd ? sprintf('<a href="%s/events/add/extends:%s" class="btn btn-inverse noPrint" style="line-height: 10px; padding: 4px 4px; margin-left: 0.3em" title="%s">+</a>',
                     $baseurl,
                     $event['Event']['id'],
                     __('Extend this event')
-                )
+                ) : ''
             )
         );
         if (Configure::read('MISP.showorgalternate')) {
@@ -225,13 +225,14 @@
             'element' => '/Events/View/eventSightingValue',
             'element_params' => array(
                 'event' => $event,
+                'sightingsData' => isset($sightingsData['data']['all']) ? $sightingsData['data']['all'] : [],
             )
         );
-        if (!empty($sightingsData['csv']['event'])) {
+        if (isset($sightingsData['data']['all'])) {
             $table_data[] = array(
                 'key' => __('Activity'),
                 'element' => 'sparkline',
-                'element_params' => array('scope' => 'event', 'id' => $event['Event']['id'], 'csv' => $sightingsData['csv']['event'])
+                'element_params' => array('scope' => 'event', 'id' => $event['Event']['id'], 'csv' => $sightingsData['csv']['all'])
             );
         }
         if (!empty($delegationRequest)) {
@@ -525,6 +526,8 @@
         <span class="report-title-section"><?php echo __('Event Reports');?></span>
         <div id="eventreport_index_div"></div>
     </div>
+    <div id="clusterrelation_div" class="info_container_eventgraph_network" style="display: none;" data-fullscreen="false">
+    </div>
     <div id="attributes_div">
         <?php echo $this->element('eventattribute'); ?>
     </div>
@@ -556,13 +559,13 @@ $(document).ready(function () {
 });
 
 function enable_correlation_graph() {
-    $.get("<?php echo $baseurl; ?>/events/viewGraph/<?php echo h($event['Event']['id']); ?>", function(data) {
+    $.get("<?= $baseurl ?>/events/viewGraph/<?php echo h($event['Event']['id']); ?>", function(data) {
         $("#correlationgraph_div").html(data);
     });
 }
 
 function enable_attack_matrix() {
-    $.get("<?php echo $baseurl; ?>/events/viewGalaxyMatrix/<?php echo h($event['Event']['id']); ?>/mitre-attack/event/1", function(data) {
+    $.get("<?= $baseurl; ?>/events/viewGalaxyMatrix/<?php echo h($event['Event']['id']); ?>/mitre-attack/event/1", function(data) {
         $("#attackmatrix_div").html(data);
     });
 }

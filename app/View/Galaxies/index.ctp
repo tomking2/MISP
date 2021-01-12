@@ -6,27 +6,15 @@
             'top_bar' => array(
                 'children' => array(
                     array(
-                        'type' => 'simple',
-                        'children' => array(
-                            array(
-                                'active' => $context === 'all',
-                                'url' => $baseurl . '/galaxies/index/context:all',
-                                'text' => __('All'),
-                            ),
-                            // array(
-                            //     'active' => $context === 'altered',
-                            //     'url' => $baseurl . '/galaxies/index/context:altered',
-                            //     'text' => __('Altered Galaxies'),
-                            // )
-                        )
-                    ),
-                    array(
                         'type' => 'search',
                         'button' => __('Filter'),
                         'placeholder' => __('Enter value to search'),
-                        'data' => '',
                         'searchKey' => 'value',
-                        'value' => $searchall
+                        'cancel' => array(
+                            'fa-icon' => 'times',
+                            'title' => __('Remove filters'),
+                            'onClick' => 'cancelSearch',
+                        )
                     )
                 )
             ),
@@ -83,22 +71,20 @@
                     ),
                     'postLink' => true,
                     'postLinkConfirm' => __('Are you sure you want to delete the Galaxy?'),
-                    'icon' => 'trash'
+                    'icon' => 'trash',
+                    'requirement' => $isSiteAdmin,
                 ),
             )
         )
     ));
     echo '</div>';
-    echo $this->element('/genericElements/SideMenu/side_menu', array('menuList' => 'galaxies', 'menuItem' => 'index'));
+    echo $this->element('/genericElements/SideMenu/side_menu', array('menuList' => 'galaxies', 'menuItem' => 'galaxy_index'));
 ?>
 <script type="text/javascript">
     var passedArgsArray = <?php echo $passedArgs; ?>;
-    if (passedArgsArray['context'] === undefined) {
-        passedArgsArray['context'] = 'pending';
-    }
-    $(document).ready(function() {
+    $(function() {
         $('#quickFilterButton').click(function() {
-            runIndexQuickFilter('/context:' + passedArgsArray['context']);
+            runIndexQuickFilter();
         });
     });
 </script>

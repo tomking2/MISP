@@ -272,6 +272,8 @@ class ServersController extends AppController
                         'push' => 0,
                         'pull' => 0,
                         'push_sightings' => 0,
+                        'push_galaxy_clusters' => 0,
+                        'pull_galaxy_clusters' => 0,
                         'caching_enabled' => 0,
                         'json' => '[]',
                         'push_rules' => '[]',
@@ -460,7 +462,7 @@ class ServersController extends AppController
             }
             if (!$fail) {
                 // say what fields are to be updated
-                $fieldList = array('id', 'url', 'push', 'pull', 'push_sightings', 'caching_enabled', 'unpublish_event', 'publish_without_email', 'remote_org_id', 'name' ,'self_signed', 'cert_file', 'client_cert_file', 'push_rules', 'pull_rules', 'internal', 'skip_proxy');
+                $fieldList = array('id', 'url', 'push', 'pull', 'push_sightings', 'push_galaxy_clusters', 'pull_galaxy_clusters', 'caching_enabled', 'unpublish_event', 'publish_without_email', 'remote_org_id', 'name' ,'self_signed', 'cert_file', 'client_cert_file', 'push_rules', 'pull_rules', 'internal', 'skip_proxy');
                 $this->request->data['Server']['id'] = $id;
                 if (isset($this->request->data['Server']['authkey']) && "" != $this->request->data['Server']['authkey']) {
                     $fieldList[] = 'authkey';
@@ -711,11 +713,14 @@ class ServersController extends AppController
         if (false == $this->Server->data['Server']['pull'] && ($technique == 'full' || $technique == 'incremental')) {
             $error = __('Pull setting not enabled for this server.');
         }
+        if (false == $this->Server->data['Server']['pull_galaxy_clusters'] && ($technique == 'pull_relevant_clusters')) {
+            $error = __('Pull setting not enabled for this server.');
+        }
         if (empty($error)) {
             if (!Configure::read('MISP.background_jobs')) {
                 $result = $this->Server->pull($this->Auth->user(), $id, $technique, $s);
                 if (is_array($result)) {
-                    $success = sprintf(__('Pull completed. %s events pulled, %s events could not be pulled, %s proposals pulled, %s sightings pulled.', count($result[0]), count($result[1]), $result[2], $result[3]));
+                    $success = sprintf(__('Pull completed. %s events pulled, %s events could not be pulled, %s proposals pulled, %s sightings pulled, %s clusters pulled.', count($result[0]), count($result[1]), $result[2], $result[3], $result[4]));
                 } else {
                     $error = $result;
                 }
@@ -1161,7 +1166,7 @@ class ServersController extends AppController
                 $dump = array(
                         'version' => $version,
                         'phpSettings' => $phpSettings,
-                        'gpgStatus' => $gpgErrors[$gpgStatus],
+                        'gpgStatus' => $gpgErrors[$gpgStatus['status']],
                         'proxyStatus' => $proxyErrors[$proxyStatus],
                         'zmqStatus' => $zmqStatus,
                         'stix' => $stix,
@@ -1411,21 +1416,21 @@ class ServersController extends AppController
         }
 
         $setting = $this->Server->getSettingData($setting_name);
+        if ($setting === false) {
+            throw new NotFoundException(__('Setting %s is invalid.', $setting_name));
+        }
         if (!empty($setting['cli_only'])) {
             throw new MethodNotAllowedException(__('This setting can only be edited via the CLI.'));
         }
         if ($this->request->is('get')) {
-            if ($setting != null) {
-                $value = Configure::read($setting['name']);
-                if ($value) {
-                    $setting['value'] = $value;
-                }
-                $setting['setting'] = $setting['name'];
+            $value = Configure::read($setting['name']);
+            if (isset($value)) {
+                $setting['value'] = $value;
             }
+            $setting['setting'] = $setting['name'];
             if (isset($setting['optionsSource']) && !empty($setting['optionsSource'])) {
                 $setting['options'] = $this->{'__load' . $setting['optionsSource']}();
             }
-            $subGroup = 'general';
             $subGroup = explode('.', $setting['name']);
             if ($subGroup[0] === 'Plugin') {
                 $subGroup = explode('_', $subGroup[1])[0];
@@ -1439,8 +1444,7 @@ class ServersController extends AppController
                 $this->set('setting', $setting);
                 $this->render('ajax/server_settings_edit');
             }
-        }
-        if ($this->request->is('post')) {
+        } else if ($this->request->is('post')) {
             if (!isset($this->request->data['Server'])) {
                 $this->request->data = array('Server' => $this->request->data);
             }
@@ -1463,7 +1467,7 @@ class ServersController extends AppController
             $this->loadModel('Log');
             if (!is_writeable(APP . 'Config/config.php')) {
                 $this->Log->create();
-                $result = $this->Log->save(array(
+                $this->Log->save(array(
                         'org' => $this->Auth->user('Organisation')['name'],
                         'model' => 'Server',
                         'model_id' => 0,
@@ -1667,7 +1671,7 @@ class ServersController extends AppController
             throw new MethodNotAllowedException('You don\'t have permission to do that.');
         }
 
-        $server = $this->Server->find('first', ['Server.id' => $id]);
+        $server = $this->Server->find('first', ['conditions' => ['Server.id' => $id]]);
         if (!$server) {
             throw new NotFoundException(__('Invalid server'));
         }
@@ -1814,7 +1818,12 @@ class ServersController extends AppController
             throw new MethodNotAllowedException('This action requires API access.');
         }
         $versionArray = $this->Server->checkMISPVersion();
-        $this->set('response', array('version' => $versionArray['major'] . '.' . $versionArray['minor'] . '.' . $versionArray['hotfix'], 'perm_sync' => $this->userRole['perm_sync'], 'perm_sighting' => $this->userRole['perm_sighting']));
+        $this->set('response', array(
+            'version' => $versionArray['major'] . '.' . $versionArray['minor'] . '.' . $versionArray['hotfix'],
+            'perm_sync' => $this->userRole['perm_sync'],
+            'perm_sighting' => $this->userRole['perm_sighting'],
+            'perm_galaxy_editor' => $this->userRole['perm_galaxy_editor'],
+        ));
         $this->set('_serialize', 'response');
     }
 
@@ -1822,11 +1831,6 @@ class ServersController extends AppController
     {
         $this->set('response', array('version' => $this->pyMispVersion));
         $this->set('_serialize', 'response');
-    }
-
-    public function getGit()
-    {
-        $status = $this->Server->getCurrentGitStatus();
     }
 
     public function checkout()
@@ -1839,11 +1843,17 @@ class ServersController extends AppController
         if ($this->request->is('post')) {
             $status = $this->Server->getCurrentGitStatus();
             $raw = array();
-            $update = $this->Server->update($status, $raw);
+            if (empty($status['branch'])) { // do not try to update if you are not on branch
+                $msg = 'Update failed, you are not on branch';
+                $raw[] = $msg;
+                $update = $msg;
+            } else {
+                $update = $this->Server->update($status, $raw);
+            }
             if ($this->_isRest()) {
                 return $this->RestResponse->viewData(array('results' => $raw), $this->response->type());
             } else {
-                return new CakeResponse(array('body'=> $update, 'type' => 'txt'));
+                return new CakeResponse(array('body' => $update, 'type' => 'txt'));
             }
         } else {
             $branch = $this->Server->getCurrentBranch();
@@ -1964,19 +1974,23 @@ class ServersController extends AppController
             }
             $curl = '';
             $python = '';
-            $result = $this->__doRestQuery($request, $curl, $python);
-            $this->set('curl', $curl);
-            $this->set('python', $python);
-            if (!$result) {
-                $this->Flash->error('Something went wrong. Make sure you set the http method, body (when sending POST requests) and URL correctly.');
-            } else {
-                $this->set('data', $result);
+            try {
+                $result = $this->__doRestQuery($request, $curl, $python);
+                $this->set('curl', $curl);
+                $this->set('python', $python);
+                if (!$result) {
+                    $this->Flash->error('Something went wrong. Make sure you set the http method, body (when sending POST requests) and URL correctly.');
+                } else {
+                    $this->set('data', $result);
+                }
+            } catch (Exception $e) {
+                $this->Flash->error(__('Something went wrong. %s', $e->getMessage()));
             }
         }
-        $header =
-            'Authorization: ' . $this->Auth->user('authkey') . PHP_EOL .
-            'Accept: application/json' . PHP_EOL .
-            'Content-Type: application/json';
+        $header = sprintf(
+            "Authorization: %s \nAccept: application/json\nContent-type: application/json",
+            empty(Configure::read('Security.advanced_authkeys')) ? $this->Auth->user('authkey') : __('YOUR_API_KEY')
+        );
         $this->set('header', $header);
         $this->set('allValidApis', $allValidApis);
         // formating for optgroup
@@ -1988,17 +2002,33 @@ class ServersController extends AppController
         $this->set('allValidApisFieldsContraint', $allValidApisFieldsContraint);
     }
 
-    private function __doRestQuery($request, &$curl = false, &$python = false)
+    /**
+     * @param array $request
+     * @param string $curl
+     * @param string $python
+     * @return array|false
+     */
+    private function __doRestQuery(array $request, &$curl = false, &$python = false)
     {
         App::uses('SyncTool', 'Tools');
         $params = array();
         $this->loadModel('RestClientHistory');
         $this->RestClientHistory->create();
         $date = new DateTime();
+        $logHeaders = $request['header'];
+        if (!empty(Configure::read('Security.advanced_authkeys'))) {
+            $logHeaders = explode("\n", $request['header']);
+            foreach ($logHeaders as $k => $header) {
+                if (strpos($header, 'Authorization') !== false) {
+                    $logHeaders[$k] = 'Authorization: ' . __('YOUR_API_KEY');
+                }
+            }
+            $logHeaders = implode("\n", $logHeaders);
+        }
         $rest_history_item = array(
             'org_id' => $this->Auth->user('org_id'),
             'user_id' => $this->Auth->user('id'),
-            'headers' => $request['header'],
+            'headers' => $logHeaders,
             'body' => empty($request['body']) ? '' : $request['body'],
             'url' => $request['url'],
             'http_method' => $request['method'],
@@ -2018,7 +2048,7 @@ class ServersController extends AppController
                 $url = $request['url'];
             }
         } else {
-            throw new InvalidArgumentException('Url not set.');
+            throw new InvalidArgumentException('URL not set.');
         }
         if (!empty($request['skip_ssl_validation'])) {
             $params['ssl_verify_peer'] = false;
@@ -2081,7 +2111,7 @@ class ServersController extends AppController
             return false;
         }
         $view_data['duration'] = microtime(true) - $start;
-        $view_data['duration'] = round($view_data['duration'] * 1000, 2) . 'ms';
+        $view_data['duration'] = round($view_data['duration'] * 1000, 2) . ' ms';
         $view_data['url'] = $url;
         $view_data['code'] =  $response->code;
         $view_data['headers'] = $response->headers;
@@ -2160,7 +2190,7 @@ misp.direct_call(relative_path, body)
             $curl = sprintf(
                 'curl \%s -d \'%s\' \%s -H "Authorization: %s" \%s -H "Accept: %s" \%s -H "Content-type: %s" \%s -X POST %s',
                 PHP_EOL,
-                json_encode(json_decode($request['body']), true),
+                json_encode(json_decode($request['body'])),
                 PHP_EOL,
                 $request['header']['Authorization'],
                 PHP_EOL,
@@ -2179,9 +2209,11 @@ misp.direct_call(relative_path, body)
         $relative_path = $this->request->data['url'];
         $result = $this->RestResponse->getApiInfo($relative_path);
         if ($this->_isRest()) {
-            return $this->RestResponse->viewData($result, $this->response->type(), false, true);
+            if (!empty($result)) {
+                $result['api_info'] = $result;
+            }
+            return $this->RestResponse->viewData($result, $this->response->type());
         } else {
-            $result = json_decode($result, true);
             if (empty($result)) {
                 return $this->RestResponse->viewData('&nbsp;', $this->response->type());
             }

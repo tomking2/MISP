@@ -3,11 +3,7 @@
         // New approach how to define menu requirements. It takes ACLs from ACLComponent.
         // TODO: Use for every menu item
         $canAccess = function ($controller, $action) use ($me, $aclComponent) {
-            $response = $aclComponent->checkAccess($me, $controller, $action, true);
-            if ($response === 404) {
-                throw new Exception("Invalid controller '$controller' specified for menu requirements.");
-            }
-            return $response === true;
+            return $aclComponent->canUserAccess($me, $controller, $action);
         };
 
         $menu = array(
@@ -39,7 +35,8 @@
                     ),
                     array(
                         'text' => __('REST client'),
-                        'url' => $baseurl . '/servers/rest'
+                        'url' => $baseurl . '/servers/rest',
+                        'requirement' => $canAccess('servers', 'rest'),
                     ),
                     array(
                         'type' => 'separator'
@@ -54,7 +51,8 @@
                     ),
                     array(
                         'url' => $baseurl . '/event_delegations/index/context:pending',
-                        'text' => __('View delegation requests')
+                        'text' => __('View delegation requests'),
+                        'requirement' => $canAccess('event_delegations', 'index'),
                     ),
                     array(
                         'type' => 'separator'
@@ -128,7 +126,11 @@
                     array(
                         'text' => __('List Galaxies'),
                         'url' => $baseurl . '/galaxies/index'
-                    )
+                    ),
+                    array(
+                        'text' => __('List Relationships'),
+                        'url' => $baseurl . '/galaxy_cluster_relations/index'
+                    ),
                 )
             ),
             array(
@@ -308,6 +310,11 @@
                         'requirement' => $canAccess('communities', 'index'),
                     ),
                     array(
+                        'text' => __('Cerebrates'),
+                        'url' => $baseurl . '/cerebrates/index',
+                        'requirement' => $canAccess('cerebrates', 'index'),
+                    ),
+                    array(
                         'text' => __('Event ID translator'),
                         'url' => '/servers/idTranslator',
                         'requirement' => $canAccess('servers', 'idTranslator')
@@ -334,7 +341,8 @@
                     ),
                     array(
                         'text' => __('Add User'),
-                        'url' => $baseurl . '/admin/users/add'
+                        'url' => $baseurl . '/admin/users/add',
+                        'requirement' => $canAccess('users', 'admin_add'),
                     ),
                     array(
                         'text' => __('Contact Users'),
@@ -455,7 +463,7 @@
                     '<span class="fas fa-star %s" id="setHomePage" title="%s" role="img" aria-label="%s" data-current-page="%s"></span>',
                     (!empty($homepage['path']) && $homepage['path'] === $this->here) ? 'orange' : '',
 		    __('Set the current page as your home page in MISP'),
-		    __('Set the current page as your home page in MISP'),		    
+		    __('Set the current page as your home page in MISP'),
                     $this->here
                 )
             ),
@@ -510,4 +518,3 @@
   </div>
 </div>
 <input type="hidden" class="keyboardShortcutsConfig" value="/shortcuts/global_menu.json" />
-

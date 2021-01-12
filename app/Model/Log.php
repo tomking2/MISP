@@ -24,9 +24,11 @@ class Log extends AppModel
                     'acceptRegistrations',
                     'add',
                     'admin_email',
+                    'attachTags',
                     'auth',
                     'auth_fail',
                     'blocklisted',
+                    'captureRelations',
                     'change_pw',
                     'delete',
                     'disable',
@@ -35,7 +37,7 @@ class Log extends AppModel
                     'edit',
                     'email',
                     'enable',
-		    'enrichment',
+                    'enrichment',
                     'error',
                     'export',
                     'fetchEvent',
@@ -98,6 +100,12 @@ class Log extends AppModel
         'errors' => array('values' => array('warning', 'error', 'version_warning'), 'name' => 'Warnings and errors'),
         'email' => array('values' => array('admin_email'))
     );
+
+    /**
+     * Null when not defined, false when not enabled
+     * @var Syslog|null|false
+     */
+    private $syslog;
 
     public function beforeSave($options = array())
     {
@@ -327,9 +335,25 @@ class Log extends AppModel
             $elasticSearchClient = $this->getElasticSearchTool();
             $elasticSearchClient->pushDocument($logIndex, "log", $data);
         }
-        if (Configure::read('Security.syslog')) {
-            // write to syslogd as well
-            $syslog = new SysLog();
+
+        // write to syslogd as well if enabled
+        if ($this->syslog === null) {
+            if (Configure::read('Security.syslog')) {
+                $options = [];
+                $syslogToStdErr = Configure::read('Security.syslog_to_stderr');
+                if ($syslogToStdErr !== null) {
+                    $options['to_stderr'] = $syslogToStdErr;
+                }
+                $syslogIdent = Configure::read('Security.syslog_ident');
+                if ($syslogIdent) {
+                    $options['ident'] = $syslogIdent;
+                }
+                $this->syslog = new SysLog($options);
+            } else {
+                $this->syslog = false;
+            }
+        }
+        if ($this->syslog) {
             $action = 'info';
             if (isset($data['Log']['action'])) {
                 if (in_array($data['Log']['action'], $this->errorActions)) {
@@ -342,18 +366,12 @@ class Log extends AppModel
 
             $entry = $data['Log']['action'];
             if (!empty($data['Log']['title'])) {
-                $entry .= sprintf(
-                    ' -- %s',
-                    $data['Log']['title']
-                );
+                $entry .= " -- {$data['Log']['title']}";
             }
             if (!empty($data['Log']['description'])) {
-                $entry .= sprintf(
-                    ' -- %s',
-                    $data['Log']['description']
-                );
+                $entry .= " -- {$data['Log']['description']}";
             }
-            $syslog->write($action, $entry);
+            $this->syslog->write($action, $entry);
         }
         return true;
     }

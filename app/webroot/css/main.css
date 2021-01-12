@@ -965,6 +965,11 @@ a.proposal_link_red:hover {
     max-height: 600px;
 }
 
+.modal-xl {
+    width: 1000px;
+    margin-left: -500px;
+}
+
 .modal-body-xl {
     max-height: 70vh;
 }
@@ -2582,6 +2587,14 @@ table tr:hover .down-expand-button {
     border-radius: 3px;
 }
 
+.fork-cluster-preview {
+    display: inline-block;
+    position: absolute;
+    right: 0px;
+    top: 100px;
+    max-width: 400px;
+}
+
 .widgetTitle {
     font-weight: bold;
     color: #0088cc;
@@ -2644,4 +2657,33 @@ table tr:hover .down-expand-button {
 .authkey {
     font-family: Monaco, Menlo, Consolas, "Courier New", monospace;
     font-size: 11px;
+}
+
+/*
+ Make user edit checkboxes nicer
+ */
+.user-edit-checkboxes div.input {
+    float: none;
+    width: inherit;
+    margin-top: 3px;
+}
+
+.user-edit-checkboxes .checkbox input[type="checkbox"] {
+    margin-top: 4px;
+}
+
+.user-edit-checkboxes label {
+    display: inline;
+}
+
+a.orgImg {
+    background-repeat: no-repeat;
+    background-size: 20px;
+    padding-left: 25px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+}
+
+.misp-error-container {
+    margin: 0 20px;
 }

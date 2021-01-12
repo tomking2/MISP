@@ -208,7 +208,8 @@ class User extends AppModel
             'counterQuery' => ''
         ),
         'Post',
-        'UserSetting'
+        'UserSetting',
+        // 'AuthKey' - readd once the initial update storm is over
     );
 
     public $actsAs = array(
@@ -221,6 +222,21 @@ class User extends AppModel
         'Trim',
         'Containable'
     );
+
+    public function __construct($id = false, $table = null, $ds = null) {
+        parent::__construct();
+        $this->AdminSetting = ClassRegistry::init('AdminSetting');
+        $db_version = $this->AdminSetting->find('first', [
+            'recursive' => -1,
+            'conditions' => ['setting' => 'db_version'],
+            'fields' => ['value']
+        ]);
+        if ($db_version['AdminSetting']['value'] >= 62) {
+            $this->bindModel([
+                'hasMany' => ['AuthKey']
+            ], false);
+        }
+    }
 
     /** @var CryptGpgExtended|null|false */
     private $gpg;
@@ -846,18 +862,19 @@ class User extends AppModel
         return $gpgTool->fetchGpgKey($fingerprint);
     }
 
+    /**
+     * Returns fields that should be fetched from database.
+     * @return array
+     */
     public function describeAuthFields()
     {
-        $fields = array();
-        $fields = array_merge($fields, array_keys($this->getColumnTypes()));
-        foreach ($fields as $k => $field) {
-            if (in_array($field, array('gpgkey', 'certif_public'))) {
-                unset($fields[$k]);
-            }
-        }
-        $fields = array_values($fields);
-        $relatedModels = array_keys($this->belongsTo);
-        foreach ($relatedModels as $relatedModel) {
+        $fields = $this->schema();
+        // Do not include keys, because they are big and usually not necessary
+        unset($fields['gpgkey']);
+        unset($fields['certif_public']);
+        $fields = array_keys($fields);
+
+        foreach ($this->belongsTo as $relatedModel => $foo) {
             $fields[] = $relatedModel . '.*';
         }
         return $fields;
@@ -1119,23 +1136,28 @@ class User extends AppModel
             return false;
         }
         $updatedUser = $this->read();
-        $oldKey = $this->data['User']['authkey'];
         if (empty($user['Role']['perm_site_admin']) && !($user['Role']['perm_admin'] && $user['org_id'] == $updatedUser['User']['org_id']) && ($user['id'] != $id)) {
             return false;
         }
-        $newkey = $this->generateAuthKey();
-        $this->saveField('authkey', $newkey);
-        $this->extralog(
-                $user,
-                'reset_auth_key',
-                sprintf(
-                    __('Authentication key for user %s (%s) updated.'),
-                    $updatedUser['User']['id'],
-                    $updatedUser['User']['email']
-                ),
-                $fieldsResult = ['authkey' =>  [$oldKey, $newkey]],
-                $updatedUser
-        );
+        if (empty(Configure::read('Security.advanced_authkeys'))) {
+            $oldKey = $this->data['User']['authkey'];
+            $newkey = $this->generateAuthKey();
+            $this->saveField('authkey', $newkey);
+            $this->extralog(
+                    $user,
+                    'reset_auth_key',
+                    sprintf(
+                        __('Authentication key for user %s (%s) updated.'),
+                        $updatedUser['User']['id'],
+                        $updatedUser['User']['email']
+                    ),
+                    $fieldsResult = ['authkey' =>  [$oldKey, $newkey]],
+                    $updatedUser
+            );
+        } else {
+            $this->AuthKey = ClassRegistry::init('AuthKey');
+            $newkey = $this->AuthKey->resetauthkey($id);
+        }
         if ($alert) {
             $baseurl = Configure::read('MISP.external_baseurl');
             if (empty($baseurl)) {
@@ -1321,6 +1343,46 @@ class User extends AppModel
             $this->Inbox = ClassRegistry::init('Inbox');
             $this->Inbox->delete($registration['id']);
             return true;
+        }
+    }
+
+    /**
+     * Updates `current_login` and `last_login` time in database.
+     *
+     * @param array $user
+     * @return array|bool
+     * @throws Exception
+     */
+    public function updateLoginTimes(array $user)
+    {
+        if (!isset($user['id'])) {
+            throw new InvalidArgumentException("Invalid user object provided.");
+        }
+        $user['action'] = 'login'; // for afterSave callbacks
+        $user['last_login'] = $user['current_login'];
+        $user['current_login'] = time();
+        return $this->save($user, true, array('id', 'last_login', 'current_login'));
+    }
+
+    /**
+     * Update field in user model and also set `date_modified`
+     *
+     * @param array $user
+     * @param string $name
+     * @param mixed $value
+     * @throws Exception
+     */
+    public function updateField(array $user, $name, $value)
+    {
+        if (!isset($user['id'])) {
+            throw new InvalidArgumentException("Invalid user object provided.");
+        }
+        $success = $this->save([
+            'id' => $user['id'],
+            $name => $value,
+        ], true, ['id', $name, 'date_modified']);
+        if (!$success) {
+            throw new RuntimeException("Could not save field `$name` with value `$value` for user `{$user['id']}`.");
         }
     }
 

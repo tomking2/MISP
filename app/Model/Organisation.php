@@ -1,6 +1,10 @@
 <?php
 App::uses('AppModel', 'Model');
 App::uses('ConnectionManager', 'Model');
+
+/**
+ * @property Event $Event
+ */
 class Organisation extends AppModel
 {
     public $useTable = 'organisations';
@@ -78,6 +82,23 @@ class Organisation extends AppModel
             'SharingGroupOrg' => array('table' => 'sharing_group_orgs', 'fields' => array('org_id')),
             'Thread' => array('table' => 'threads', 'fields' => array('org_id')),
             'User' => array('table' => 'users', 'fields' => array('org_id'))
+    );
+
+    public $genericMISPOrganisation = array(
+        'id' => '0',
+        'name' => 'MISP',
+        'date_created' => '',
+        'date_modified' => '',
+        'description' => 'Automatically generated MISP organisation',
+        'type' => '',
+        'nationality' => 'Not specified',
+        'sector' => '',
+        'created_by' => '0',
+        'uuid' => '0',
+        'contacts' => '',
+        'local' => true,
+        'restricted_to_domain' => '',
+        'landingpage' => null
     );
 
     public function beforeValidate($options = array())
@@ -216,20 +237,27 @@ class Organisation extends AppModel
         return $existingOrg[$this->alias]['id'];
     }
 
-    public function createOrgFromName($name, $user_id, $local)
+    /**
+     * @param string $name Organisation name
+     * @param int $userId Organisation creator
+     * @param bool $local True if organisation should be marked as local
+     * @return int Existing or newly created organisation ID
+     * @throws Exception
+     */
+    public function createOrgFromName($name, $userId, $local)
     {
-        $existingOrg = $this->find('first', array(
-                'recursive' => -1,
-                'conditions' => array('name' => $name)
-        ));
+        $existingOrg = $this->find('first', [
+            'recursive' => -1,
+            'conditions' => ['name' => $name],
+            'fields' => ['id'],
+        ]);
         if (empty($existingOrg)) {
             $this->create();
-            $organisation = array(
-                    'uuid' =>CakeText::uuid(),
-                    'name' => $name,
-                    'local' => $local,
-                    'created_by' => $user_id
-            );
+            $organisation = [
+                'name' => $name,
+                'local' => $local,
+                'created_by' => $userId,
+            ];
             $this->save($organisation);
             return $this->id;
         }
@@ -385,33 +413,33 @@ class Organisation extends AppModel
         return (empty($org)) ? false : $org[$this->alias];
     }
 
-    public function attachOrgsToEvent($event, $fields)
+    /**
+     * @param array $event
+     * @param array $fields
+     * @return array
+     */
+    public function attachOrgs($data, $fields, $scope = 'Event')
     {
-        if (empty($this->__orgCache[$event['Event']['orgc_id']])) {
-            $temp = $this->find('first', array(
-                'conditions' => array('id' => $event['Event']['orgc_id']),
+        $toFetch = [];
+        if (!isset($this->__orgCache[$data[$scope]['orgc_id']])) {
+            $toFetch[] = $data[$scope]['orgc_id'];
+        }
+        if (!isset($this->__orgCache[$data[$scope]['org_id']]) && $data[$scope]['org_id'] != $data[$scope]['orgc_id']) {
+            $toFetch[] = $data[$scope]['org_id'];
+        }
+        if (!empty($toFetch)) {
+            $orgs = $this->find('all', array(
+                'conditions' => array('id' => $toFetch),
                 'recursive' => -1,
                 'fields' => $fields
             ));
-            if (!empty($temp)) {
-                $temp = $temp[$this->alias];
+            foreach ($orgs as $org) {
+                $this->__orgCache[$org[$this->alias]['id']] = $org[$this->alias];
             }
-            $this->__orgCache[$event['Event']['orgc_id']] = $temp;
         }
-        $event['Orgc'] = $this->__orgCache[$event['Event']['orgc_id']];
-        if (empty($this->__orgCache[$event['Event']['org_id']])) {
-            $temp = $this->find('first', array(
-                'conditions' => array('id' => $event['Event']['org_id']),
-                'recursive' => -1,
-                'fields' => $fields
-            ));
-            if (!empty($temp)) {
-                $temp = $temp[$this->alias];
-            }
-            $this->__orgCache[$event['Event']['org_id']] = $temp;
-        }
-        $event['Org'] = $this->__orgCache[$event['Event']['org_id']];
-        return $event;
+        $data['Orgc'] = $this->__orgCache[$data[$scope]['orgc_id']];
+        $data['Org'] = $this->__orgCache[$data[$scope]['org_id']];
+        return $data;
     }
 
     public function getOrgIdsFromMeta($metaConditions)
@@ -455,6 +483,44 @@ class Organisation extends AppModel
         return $suggestedOrg;
     }
 
+    /**
+     * Hide organisation view from users if they haven't yet contributed data and Security.hide_organisation_index_from_users is enabled
+     *
+     * @param array $user
+     * @param int $orgId
+     * @return bool
+     */
+    public function canSee(array $user, $orgId)
+    {
+        if ($user['org_id'] == $orgId) {
+            return true; // User can see his own org.
+        }
+        if (!$user['Role']['perm_sharing_group'] && Configure::read('Security.hide_organisation_index_from_users')) {
+            // Check if there is event from given org that can current user see
+            $eventConditions = $this->Event->createEventConditions($user);
+            $eventConditions['AND']['Event.orgc_id'] = $orgId;
+            $event = $this->Event->find('first', array(
+                'fields' => array('Event.id'),
+                'recursive' => -1,
+                'conditions' => $eventConditions,
+            ));
+            if (empty($event)) {
+                $proposalConditions = $this->Event->ShadowAttribute->buildConditions($user);
+                $proposalConditions['AND']['ShadowAttribute.org_id'] = $orgId;
+                $proposal = $this->Event->ShadowAttribute->find('first', array(
+                    'fields' => array('ShadowAttribute.id'),
+                    'recursive' => -1,
+                    'conditions' => $proposalConditions,
+                    'contain' => ['Event', 'Attribute'],
+                ));
+                if (empty($proposal)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private function getCountryGalaxyCluster()
     {
         static $list;
@@ -490,10 +556,9 @@ class Organisation extends AppModel
      */
     public function getCountries()
     {
-        $countries = ['International'];
-        foreach ($this->getCountryGalaxyCluster() as $country) {
-            $countries[] = $country['description'];
-        }
+        $countries = array_column($this->getCountryGalaxyCluster(), 'description');
+        sort($countries);
+        array_unshift($countries, 'Internation');
         return $countries;
     }
 }

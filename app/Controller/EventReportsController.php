@@ -1,7 +1,9 @@
 <?php
-
 App::uses('AppController', 'Controller');
 
+/**
+ * @property EventReport $EventReport
+ */
 class EventReportsController extends AppController
 {
     public $components = array(
@@ -67,6 +69,7 @@ class EventReportsController extends AppController
         $this->set('ajax', $ajax);
         $this->set('id', $reportId);
         $this->set('report', $report);
+        $this->set('title_for_layout', __('Event report %s', $report['EventReport']['name']));
         $this->__injectDistributionLevelToViewContext();
         $this->__injectPermissionsToViewContext($this->Auth->user(), $report);
     }
@@ -184,6 +187,16 @@ class EventReportsController extends AppController
             $this->set('reports', $reports);
             $this->__injectIndexVariablesToViewContext($filters);
             if (!empty($filters['index_for_event'])) {
+                if (empty($filters['event_id'])) {
+                    throw new MethodNotAllowedException("When requesting index for event, event ID must be provided.");
+                }
+                try {
+                    $this->__canModifyReport($filters['event_id']);
+                    $canModify = true;
+                } catch (Exception $e) {
+                    $canModify = false;
+                }
+                $this->set('canModify', $canModify);
                 $this->set('extendedEvent', !empty($filters['extended_event']));
                 $fetcherModule = $this->EventReport->isFetchURLModuleEnabled();
                 $this->set('importModuleEnabled', is_array($fetcherModule));
@@ -317,6 +330,45 @@ class EventReportsController extends AppController
         $this->render('ajax/importReportFromUrl');
     }
 
+    public function reportFromEvent($eventId)
+    {
+        $event = $this->__canModifyReport($eventId);
+        if ($this->request->is('post') || $this->request->is('put')) {
+            $filters = $this->EventReport->jsonDecode($this->data['EventReport']['filters']);
+            $options['conditions'] = $filters;
+            $options['event_id'] = $eventId;
+            App::uses('ReportFromEvent', 'EventReport');
+            $optionFields = array_keys((new ReportFromEvent())->acceptedOptions);
+            foreach ($optionFields as $field) {
+                if (isset($this->data['EventReport'][$field])) {
+                    $options[$field] = $this->data['EventReport'][$field];
+                }
+            }
+            $markdown = $this->EventReport->getReportFromEvent($this->Auth->user(), $options);
+            if (!empty($markdown)) {
+                $report = [
+                    'name' => __('Event report (%s)', time()),
+                    'distribution' => 5,
+                    'content' => $markdown
+                ];
+                $errors = $this->EventReport->addReport($this->Auth->user(), $report, $eventId);
+            } else {
+                $errors[] = __('Could not generate markdown from the event');
+            }
+            $redirectTarget = array('controller' => 'events', 'action' => 'view', $eventId);
+            if (!empty($errors)) {
+                return $this->__getFailResponseBasedOnContext($errors, array(), 'add', $this->EventReport->id, $redirectTarget);
+            } else {
+                $successMessage = __('Report saved.');
+                $report = $this->EventReport->simpleFetchById($this->Auth->user(), $this->EventReport->id);
+                return $this->__getSuccessResponseBasedOnContext($successMessage, $report, 'add', false, $redirectTarget);
+            }
+        }
+        $this->set('event_id', $eventId);
+        $this->layout = 'ajax';
+        $this->render('ajax/reportFromEvent');
+    }
+
     private function __generateIndexConditions($filters = [])
     {
         $aclConditions = $this->EventReport->buildACLConditions($this->Auth->user());
@@ -447,9 +499,15 @@ class EventReportsController extends AppController
         $this->set('canEdit', $canEdit);
     }
 
+    /**
+     * @param int $eventId
+     * @return array
+     * @throws NotFoundException
+     * @throws ForbiddenException
+     */
     private function __canModifyReport($eventId)
     {
-        $event = $this->EventReport->Event->fetchSimpleEvent($this->Auth->user(), $eventId, array());
+        $event = $this->EventReport->Event->fetchSimpleEvent($this->Auth->user(), $eventId);
         if (empty($event)) {
             throw new NotFoundException(__('Invalid event'));
         }

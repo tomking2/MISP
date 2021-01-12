@@ -98,11 +98,11 @@ class Attribute extends AppModel
             'Payload delivery' => array(
                     'desc' => __('Information about how the malware is delivered'),
                     'formdesc' => __('Information about the way the malware payload is initially delivered, for example information about the email or web-site, vulnerability used, originating IP etc. Malware sample itself should be attached here.'),
-                    'types' => array('md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'sha512/224', 'sha512/256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'ssdeep', 'imphash', 'telfhash', 'impfuzzy', 'authentihash', 'vhash', 'pehash', 'tlsh', 'cdhash', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha224', 'filename|sha256', 'filename|sha384', 'filename|sha512', 'filename|sha512/224', 'filename|sha512/256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'filename|authentihash', 'filename|vhash', 'filename|ssdeep', 'filename|tlsh', 'filename|imphash','filename|impfuzzy', 'filename|pehash', 'mac-address', 'mac-eui-64', 'ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'hostname', 'domain', 'email', 'email-src', 'email-dst', 'email-subject', 'email-attachment', 'email-body', 'url', 'user-agent', 'AS', 'pattern-in-file', 'pattern-in-traffic', 'filename-pattern', 'stix2-pattern', 'yara', 'sigma', 'mime-type', 'attachment', 'malware-sample', 'link', 'malware-type', 'comment', 'text', 'hex', 'vulnerability', 'cpe', 'weakness', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'hassh-md5', 'hasshserver-md5', 'other', 'hostname|port', 'email-dst-display-name', 'email-src-display-name', 'email-header', 'email-reply-to', 'email-x-mailer', 'email-mime-boundary', 'email-thread-index', 'email-message-id', 'mobile-application-id', 'chrome-extension-id', 'whois-registrant-email', 'anonymised')
+                    'types' => array('md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'sha512/224', 'sha512/256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'ssdeep', 'imphash', 'telfhash', 'impfuzzy', 'authentihash', 'vhash', 'pehash', 'tlsh', 'cdhash', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha224', 'filename|sha256', 'filename|sha384', 'filename|sha512', 'filename|sha512/224', 'filename|sha512/256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'filename|authentihash', 'filename|vhash', 'filename|ssdeep', 'filename|tlsh', 'filename|imphash','filename|impfuzzy', 'filename|pehash', 'mac-address', 'mac-eui-64', 'ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'hostname', 'domain', 'email', 'email-src', 'email-dst', 'email-subject', 'email-attachment', 'email-body', 'url', 'user-agent', 'AS', 'pattern-in-file', 'pattern-in-traffic', 'filename-pattern', 'stix2-pattern', 'yara', 'sigma', 'mime-type', 'attachment', 'malware-sample', 'link', 'malware-type', 'comment', 'text', 'hex', 'vulnerability', 'cpe', 'weakness', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'other', 'hostname|port', 'email-dst-display-name', 'email-src-display-name', 'email-header', 'email-reply-to', 'email-x-mailer', 'email-mime-boundary', 'email-thread-index', 'email-message-id', 'mobile-application-id', 'chrome-extension-id', 'whois-registrant-email', 'anonymised')
                     ),
             'Artifacts dropped' => array(
                     'desc' => __('Any artifact (files, registry keys etc.) dropped by the malware or other modifications to the system'),
-                    'types' => array('md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'sha512/224', 'sha512/256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'ssdeep', 'imphash', 'telfhash', 'impfuzzy', 'authentihash', 'vhash', 'cdhash', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha224', 'filename|sha256', 'filename|sha384', 'filename|sha512', 'filename|sha512/224', 'filename|sha512/256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'filename|authentihash', 'filename|vhash', 'filename|ssdeep', 'filename|tlsh', 'filename|imphash', 'filename|impfuzzy','filename|pehash', 'regkey', 'regkey|value', 'pattern-in-file', 'pattern-in-memory', 'filename-pattern', 'pdb', 'stix2-pattern', 'yara', 'sigma', 'attachment', 'malware-sample', 'named pipe', 'mutex', 'windows-scheduled-task', 'windows-service-name', 'windows-service-displayname', 'comment', 'text', 'hex', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'other', 'cookie', 'gene', 'kusto-query', 'mime-type', 'anonymised', 'pgp-public-key', 'pgp-private-key')
+                    'types' => array('md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'sha512/224', 'sha512/256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'ssdeep', 'imphash', 'telfhash', 'impfuzzy', 'authentihash', 'vhash', 'cdhash', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha224', 'filename|sha256', 'filename|sha384', 'filename|sha512', 'filename|sha512/224', 'filename|sha512/256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'filename|authentihash', 'filename|vhash', 'filename|ssdeep', 'filename|tlsh', 'filename|imphash', 'filename|impfuzzy','filename|pehash', 'regkey', 'regkey|value', 'pattern-in-file', 'pattern-in-memory', 'filename-pattern', 'pdb', 'stix2-pattern', 'yara', 'sigma', 'attachment', 'malware-sample', 'named pipe', 'mutex', 'process-state','windows-scheduled-task', 'windows-service-name', 'windows-service-displayname', 'comment', 'text', 'hex', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'other', 'cookie', 'gene', 'kusto-query', 'mime-type', 'anonymised', 'pgp-public-key', 'pgp-private-key')
                     ),
             'Payload installation' => array(
                     'desc' => __('Info on where the malware gets installed in the system'),
@@ -116,7 +116,7 @@ class Attribute extends AppModel
                     ),
             'Network activity' => array(
                     'desc' => __('Information about network traffic generated by the malware'),
-                    'types' => array('ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'port', 'hostname', 'domain', 'domain|ip', 'mac-address', 'mac-eui-64', 'email', 'email-dst', 'email-src', 'eppn', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'pattern-in-file', 'filename-pattern','stix2-pattern', 'pattern-in-traffic', 'attachment', 'comment', 'text', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'hassh-md5', 'hasshserver-md5', 'other', 'hex', 'cookie', 'hostname|port', 'bro', 'zeek', 'anonymised', 'community-id', 'email-subject')
+                    'types' => array('ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'port', 'hostname', 'domain', 'domain|ip', 'mac-address', 'mac-eui-64', 'email', 'email-dst', 'email-src', 'eppn', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'pattern-in-file', 'filename-pattern','stix2-pattern', 'pattern-in-traffic', 'attachment', 'comment', 'text', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'other', 'hex', 'cookie', 'hostname|port', 'bro', 'zeek', 'anonymised', 'community-id', 'email-subject', 'favicon-mmh3')
                     ),
             'Payload type' => array(
                     'desc' => __('Information about the final payload(s)'),
@@ -130,7 +130,7 @@ class Attribute extends AppModel
             'External analysis' => array(
                     'desc' => __('Any other result from additional analysis of the malware like tools output'),
                     'formdesc' => __('Any other result from additional analysis of the malware like tools output Examples: pdf-parser output, automated sandbox analysis, reverse engineering report.'),
-                    'types' => array('md5', 'sha1', 'sha256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'mac-address', 'mac-eui-64', 'hostname', 'domain', 'domain|ip', 'url', 'user-agent', 'regkey', 'regkey|value', 'AS', 'snort', 'bro', 'zeek', 'pattern-in-file', 'pattern-in-traffic', 'pattern-in-memory', 'filename-pattern','vulnerability', 'cpe', 'weakness', 'attachment', 'malware-sample', 'link', 'comment', 'text', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'hassh-md5', 'hasshserver-md5', 'github-repository', 'other', 'cortex', 'anonymised', 'community-id')
+                    'types' => array('md5', 'sha1', 'sha256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'mac-address', 'mac-eui-64', 'hostname', 'domain', 'domain|ip', 'url', 'user-agent', 'regkey', 'regkey|value', 'AS', 'snort', 'bro', 'zeek', 'pattern-in-file', 'pattern-in-traffic', 'pattern-in-memory', 'filename-pattern','vulnerability', 'cpe', 'weakness', 'attachment', 'malware-sample', 'link', 'comment', 'text', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'github-repository', 'other', 'cortex', 'anonymised', 'community-id')
                     ),
             'Financial fraud' => array(
                     'desc' => __('Financial Fraud indicators'),
@@ -186,6 +186,8 @@ class Attribute extends AppModel
             'http-method' => array('desc' => __("HTTP method used by the malware (e.g. POST, GET, ...)."), 'default_category' => 'Network activity', 'to_ids' => 0),
             'user-agent' => array('desc' => __("The user-agent used by the malware in the HTTP request."), 'default_category' => 'Network activity', 'to_ids' => 0),
             'ja3-fingerprint-md5' => array('desc' => __("JA3 is a method for creating SSL/TLS client fingerprints that should be easy to produce on any platform and can be easily shared for threat intelligence."), 'default_category' => 'Network activity', 'to_ids' => 1),
+            'jarm-fingerprint' => array('desc' => __("JARM is a method for creating SSL/TLS server fingerprints."), 'default_category' => 'Network activity', 'to_ids' => 1),
+            'favicon-mmh3' => array('desc' => __("favicon-mmh3 is the murmur3 hash of a favicon as used in Shodan."), 'default_category' => 'Network activity', 'to_ids' => 1),
             'hassh-md5' => array('desc' => __("hassh is a network fingerprinting standard which can be used to identify specific Client SSH implementations. The fingerprints can be easily stored, searched and shared in the form of an MD5 fingerprint."), 'default_category' => 'Network activity', 'to_ids' => 1),
             'hasshserver-md5' => array('desc' => __("hasshServer is a network fingerprinting standard which can be used to identify specific Server SSH implementations. The fingerprints can be easily stored, searched and shared in the form of an MD5 fingerprint."), 'default_category' => 'Network activity', 'to_ids' => 1),
             'regkey' => array('desc' => __("Registry key or value"), 'default_category' => 'Persistence mechanism', 'to_ids' => 1),
@@ -221,6 +223,7 @@ class Attribute extends AppModel
             'other' => array('desc' => __('Other attribute'), 'default_category' => 'Other', 'to_ids' => 0),
             'named pipe' => array('desc' => __('Named pipe, use the format \\.\pipe\<PipeName>'), 'default_category' => 'Artifacts dropped', 'to_ids' => 0),
             'mutex' => array('desc' => __('Mutex, use the format \BaseNamedObjects\<Mutex>'), 'default_category' => 'Artifacts dropped', 'to_ids' => 1),
+            'process-state' => array('desc' => __('State of a process'), 'default_category' => 'Artifacts dropped', 'to_ids' => 0),
             'target-user' => array('desc' => __('Attack Targets Username(s)'), 'default_category' => 'Targeting data', 'to_ids' => 0),
             'target-email' => array('desc' => __('Attack Targets Email(s)'), 'default_category' => 'Targeting data', 'to_ids' => 0),
             'target-machine' => array('desc' => __('Attack Targets Machine Name(s)'), 'default_category' => 'Targeting data', 'to_ids' => 0),
@@ -481,6 +484,8 @@ class Attribute extends AppModel
             'git-commit-id' => 'Internal reference',
             'url' => 'Network activity',
             'ja3-fingerprint-md5' => 'Network activity',
+            'jarm-fingerprint' => 'Network activity',
+            'favicon-mmh3' => 'Network activity',
             'hassh-md5' => 'Network activity',
             'hasshserver-md5' => 'Network activity',
             'link' => 'External analysis',
@@ -502,7 +507,7 @@ class Attribute extends AppModel
     // This helps generate quick filtering for the event view, but we may reuse this and enhance it in the future for other uses (such as the API?)
     public $typeGroupings = array(
         'file' => array('attachment', 'pattern-in-file', 'filename-pattern', 'md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'sha512/224', 'sha512/256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'ssdeep', 'imphash', 'telfhash', 'impfuzzy', 'authentihash', 'vhash', 'pehash', 'tlsh', 'cdhash', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha224', 'filename|sha256', 'filename|sha384', 'filename|sha512', 'filename|sha512/224', 'filename|sha512/256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'filename|authentihash', 'filename|vhash', 'filename|ssdeep', 'filename|tlsh', 'filename|imphash', 'filename|pehash', 'malware-sample', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256', 'x509-fingerprint-md5'),
-        'network' => array('ip-src', 'ip-dst', 'ip-src|port', 'ip-dst|port', 'mac-address', 'mac-eui-64', 'hostname', 'hostname|port', 'domain', 'domain|ip', 'email-dst', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'bro', 'zeek',  'pattern-in-traffic', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256','ja3-fingerprint-md5', 'hassh-md5', 'hasshserver-md5', 'community-id'),
+        'network' => array('ip-src', 'ip-dst', 'ip-src|port', 'ip-dst|port', 'mac-address', 'mac-eui-64', 'hostname', 'hostname|port', 'domain', 'domain|ip', 'email-dst', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'bro', 'zeek',  'pattern-in-traffic', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256','ja3-fingerprint-md5', 'jarm-fingerprint', 'favicon-mmh3', 'hassh-md5', 'hasshserver-md5', 'community-id'),
         'financial' => array('btc', 'xmr', 'iban', 'bic', 'bank-account-nr', 'aba-rtn', 'bin', 'cc-number', 'prtn', 'phone-number')
     );
 
@@ -1044,6 +1049,7 @@ class Attribute extends AppModel
         'x509-fingerprint-sha1' => 40,
         'x509-fingerprint-sha256' => 64,
         'ja3-fingerprint-md5' => 32,
+        'jarm-fingerprint' => 62,
         'hassh-md5' => 32,
         'hasshserver-md5' => 32,
         'pehash' => 40,
@@ -1080,6 +1086,7 @@ class Attribute extends AppModel
             case 'sha3-512':
             case 'authentihash':
             case 'ja3-fingerprint-md5':
+            case 'jarm-fingerprint':
             case 'hassh-md5':
             case 'hasshserver-md5':
             case 'x509-fingerprint-md5':
@@ -1194,7 +1201,7 @@ class Attribute extends AppModel
                 }
                 break;
             case 'filename|vhash':
-                if (preg_match('#^.+\|[a-zA-Z0-9&!=\"]+$#', $value)) {
+                if (preg_match('#^.+\|.+$#', $value)) {
                     $returnValue = true;
                 } else {
                     $returnValue = __('Checksum has an invalid length or format (expected: filename|string characters). Please double check the value or select type "other".');
@@ -1323,6 +1330,7 @@ class Attribute extends AppModel
                 }
                 break;
             case 'mutex':
+            case 'process-state':
             case 'snort':
             case 'bro':
             case 'zeek':
@@ -1418,6 +1426,7 @@ class Attribute extends AppModel
             case 'github-repository':
             case 'github-organisation':
             case 'twitter-id':
+            case 'favicon-mmh3':
             case 'chrome-extension-id':
             case 'mobile-application-id':
                 if (strpos($value, "\n") !== false) {
@@ -1455,7 +1464,7 @@ class Attribute extends AppModel
                 }
                 break;
             case 'vhash':
-                if (preg_match('/^[a-zA-Z0-9&!="]+$/', $value)) {
+                if (preg_match('/^.+$/', $value)) {
                     $returnValue = true;
                 }
                 break;
@@ -1508,6 +1517,7 @@ class Attribute extends AppModel
             case 'sha3-384':
             case 'sha3-512':
             case 'ja3-fingerprint-md5':
+            case 'jarm-fingerprint':
             case 'hassh-md5':
             case 'hasshserver-md5':
             case 'hostname':
@@ -3249,13 +3259,20 @@ class Attribute extends AppModel
         return $attribute;
     }
 
-    public function fetchAttributesSimple($user, $options = array())
+    /**
+     * Fetches attributes that $user can see.
+     *
+     * @param array $user
+     * @param array $options
+     * @return array
+     */
+    public function fetchAttributesSimple(array $user, array $options = array())
     {
         $params = array(
             'conditions' => $this->buildConditions($user),
             'fields' => array(),
             'recursive' => -1,
-            'contain' => array()
+            'contain' => ['Event', 'Object'], // by default include Event and Object, because it is required for conditions
         );
         if (isset($options['conditions'])) {
             $params['conditions']['AND'][] = $options['conditions'];
@@ -3266,14 +3283,13 @@ class Attribute extends AppModel
         if (isset($options['contain'])) {
             $params['contain'] = $options['contain'];
         }
-        $results = $this->find('all', array(
+        return $this->find('all', array(
             'conditions' => $params['conditions'],
             'recursive' => -1,
             'fields' => $params['fields'],
             'contain' => $params['contain'],
             'sort' => false
         ));
-        return $results;
     }
 
     // Method that fetches all attributes for the various exports
@@ -3342,23 +3358,8 @@ class Attribute extends AppModel
             $params['contain']['AttributeTag']['Tag']['conditions']['exportable'] = 1;
         }
         if (!empty($options['includeContext'])) {
-            $params['contain']['Event'] = array(
-                'fields' => array(
-                    'id','orgc_id','org_id','date','threat_level_id','info','published','uuid','analysis','timestamp','distribution','publish_timestamp','sharing_group_id','extends_uuid'
-                ),
-                'EventTag' => array(
-                    'Tag' => array(
-                        'fields' => array(
-                            'Tag.id', 'Tag.name', 'Tag.colour', 'Tag.numerical_value'
-                        )
-                    )
-                ),
-                'Orgc' => array(
-                    'fields' => array(
-                        'Orgc.id', 'Orgc.uuid', 'Orgc.name'
-                    )
-                )
-            );
+            // include just event id for conditions, rest event data will be fetched later
+            $params['contain']['Event']['fields'] = ['id'];
         }
         if (isset($options['contain'])) {
             // We may use a string instead of an array to ask for everything
@@ -3448,7 +3449,7 @@ class Attribute extends AppModel
             $params['conditions']['AND']['(Attribute.deleted + 0)'] = $options['deleted'];
         }
         if (isset($options['group'])) {
-            $params['group'] = empty($options['group']) ? $options['group'] : false;
+            $params['group'] = !empty($options['group']) ? $options['group'] : false;
         }
         // Site admin can access even unpublished event attributes if `unpublishedprivate` option is enabled
         if (!$user['Role']['perm_site_admin'] && Configure::read('MISP.unpublishedprivate')) {
@@ -3483,7 +3484,6 @@ class Attribute extends AppModel
             $params['page'] = 0;
         } else {
             $loop = false;
-            $pagesToFetch = 1;
         }
         $attributes = array();
         if (!empty($options['includeEventTags'])) {
@@ -3498,6 +3498,19 @@ class Attribute extends AppModel
                 }
             }
             $results = $this->find('all', $params);
+
+            if (!empty($options['includeContext']) && !empty($results)) {
+                $eventIds = [];
+                foreach ($results as $result) {
+                    $eventIds[$result['Attribute']['event_id']] = true; // deduplicate
+                }
+                $eventsById = $this->__fetchEventsForAttributeContext($user, array_keys($eventIds), !empty($options['includeAllTags']));
+                foreach ($results as &$result) {
+                    $result['Event'] = $eventsById[$result['Attribute']['event_id']];
+                }
+                unset($eventsById, $result); // unset result is important, because it is reference
+            }
+
             foreach ($results as $k => $result) {
                 if (!empty($result['AttributeTag'])) {
                     $tagCulled = false;
@@ -3512,14 +3525,6 @@ class Attribute extends AppModel
                     if ($tagCulled) {
                         $results[$k]['AttributeTag'] = array_values($results[$k]['AttributeTag']);
                     }
-                }
-                if (isset($result['Event']['EventTag'])) {
-                    $results[$k]['Event']['Tag'] = array();
-                    foreach ($result['Event']['EventTag'] as $et) {
-                        $et['Tag']['local'] = $et['local'];
-                        $results[$k]['Event']['Tag'][] = $et['Tag'];
-                    }
-                    unset($results[$k]['Event']['EventTag']);
                 }
                 if (!empty($options['includeSightings'])) {
                     $temp = $result['Attribute'];
@@ -3588,8 +3593,8 @@ class Attribute extends AppModel
                 }
                 if (!empty($results[$key])) {
                     if (!empty($options['includeGalaxy'])) {
-                        $massaged_attribute = $this->Event->massageTags($results[$key], 'Attribute');
-                        $massaged_event = $this->Event->massageTags($results[$key], 'Event');
+                        $massaged_attribute = $this->Event->massageTags($user, $results[$key], 'Attribute');
+                        $massaged_event = $this->Event->massageTags($user, $results[$key], 'Event');
                         $massaged_attribute['Galaxy'] = array_merge_recursive($massaged_attribute['Galaxy'], $massaged_event['Galaxy']);
                         $results[$key] = $massaged_attribute;
                     }
@@ -3601,6 +3606,50 @@ class Attribute extends AppModel
             }
         }
         return $attributes;
+    }
+
+    /**
+     * @param array $user
+     * @param array $eventIds
+     * @param bool $includeAllTags
+     * @return array
+     * @throws Exception
+     */
+    private function __fetchEventsForAttributeContext(array $user, array $eventIds, $includeAllTags)
+    {
+        if (empty($eventIds)) {
+            return [];
+        }
+        $events = $this->Event->fetchEvent($user, [
+            'eventid' => $eventIds,
+            'metadata' => true,
+            'sgReferenceOnly' => true,
+            'includeEventCorrelations' => false,
+            'includeAllTags' => $includeAllTags,
+        ]);
+        $eventFields = ['id', 'orgc_id', 'org_id', 'date', 'threat_level_id', 'info', 'published', 'uuid', 'analysis', 'timestamp', 'distribution', 'publish_timestamp', 'sharing_group_id', 'extends_uuid'];
+        $tagFields = ['id', 'name', 'colour', 'numerical_value'];
+
+        $eventsById = [];
+        // Reformat to required format
+        foreach ($events as $event) {
+            $newEvent = [];
+            foreach ($eventFields as $eventField) {
+                $newEvent[$eventField] = $event['Event'][$eventField];
+            }
+            $tags = [];
+            foreach ($event['EventTag'] as $et) {
+                $tag = ['local' => $et['local']];
+                foreach ($tagFields as $tagField) {
+                    $tag[$tagField] = $et['Tag'][$tagField];
+                }
+                $tags[] = $tag;
+            }
+            $newEvent['Tag'] = $tags;
+            $newEvent['Orgc'] = $event['Orgc'];
+            $eventsById[$newEvent['id']] = $newEvent;
+        }
+        return $eventsById;
     }
 
     private function __attachEventTagsToAttributes($eventTags, &$results, $key, $options)
@@ -3941,7 +3990,7 @@ class Attribute extends AppModel
                 'value1 LIKE' => '%/%'
             ),
             'fields' => array('value1'),
-            'group' => 'value1', // return just unique value
+            'group' => array('value1', 'id'), // return just unique value
             'order' => false
         ));
     }
@@ -4563,7 +4612,7 @@ class Attribute extends AppModel
         }
 
         $subqueryElements = $this->Event->harvestSubqueryElements($filters);
-        $filters = $this->Event->addFiltersFromSubqueryElements($filters, $subqueryElements);
+        $filters = $this->Event->addFiltersFromSubqueryElements($filters, $subqueryElements, $user);
         $filters = $this->Event->addFiltersFromUserSettings($user, $filters);
         $conditions = $this->buildFilterConditions($user, $filters);
         $params = array(
@@ -4640,54 +4689,57 @@ class Attribute extends AppModel
         $tmpfile->write($exportTool->header($exportToolParams));
         $loop = false;
         if (empty($params['limit'])) {
-            $memory_in_mb = $this->convert_to_memory_limit_to_mb(ini_get('memory_limit'));
+            $memoryInMb = $this->convert_to_memory_limit_to_mb(ini_get('memory_limit'));
             $default_attribute_memory_coefficient = Configure::check('MISP.default_attribute_memory_coefficient') ? Configure::read('MISP.default_attribute_memory_coefficient') : 80;
-            $memory_scaling_factor = isset($exportTool->memory_scaling_factor) ? $exportTool->memory_scaling_factor : $default_attribute_memory_coefficient;
-            $params['limit'] = $memory_in_mb * $memory_scaling_factor;
+            $memoryScalingFactor = isset($exportTool->memory_scaling_factor) ? $exportTool->memory_scaling_factor : $default_attribute_memory_coefficient;
+            $params['limit'] = $memoryInMb * $memoryScalingFactor;
             $loop = true;
             $params['page'] = 1;
         }
         if (empty($exportTool->mock_query_only)) {
-            $this->__iteratedFetch($user, $params, $loop, $tmpfile, $exportTool, $exportToolParams, $elementCounter);
+            $elementCounter = $this->__iteratedFetch($user, $params, $loop, $tmpfile, $exportTool, $exportToolParams);
         }
         $tmpfile->write($exportTool->footer($exportToolParams));
         return $tmpfile->finish();
     }
 
-    private function __iteratedFetch($user, &$params, &$loop, TmpFileTool $tmpfile, $exportTool, $exportToolParams, &$elementCounter = 0)
+    /**
+     * @param array $user
+     * @param array $params
+     * @param bool $loop If true, data are fetched in loop to keep memory usage low
+     * @param TmpFileTool $tmpfile
+     * @param object $exportTool
+     * @param array $exportToolParams
+     * @return int Number of attributes
+     * @throws Exception
+     */
+    private function __iteratedFetch(array $user, array $params, $loop, TmpFileTool $tmpfile, $exportTool, array $exportToolParams)
     {
         $this->Allowedlist = ClassRegistry::init('Allowedlist');
+        $separator = $exportTool->separator($exportToolParams);
+        $elementCounter = 0;
         $continue = true;
-        while ($continue) {
+        do {
             $results = $this->fetchAttributes($user, $params, $continue);
+            if (empty($results)) {
+                break; // nothing found, skip rest
+            }
             if ($params['includeSightingdb']) {
                 $this->Sightingdb = ClassRegistry::init('Sightingdb');
                 $results = $this->Sightingdb->attachToAttributes($results, $user);
             }
-            $params['page'] += 1;
             $results = $this->Allowedlist->removeAllowedlistedFromArray($results, true);
-            $i = 0;
-            $temp = '';
+            $elementCounter += count($results);
             foreach ($results as $attribute) {
-                $elementCounter++;
                 $handlerResult = $exportTool->handler($attribute, $exportToolParams);
-                $temp .= $handlerResult;
                 if ($handlerResult !== '') {
-                    if ($i != count($results) -1) {
-                        $temp .= $exportTool->separator($exportToolParams);
-                    }
+                    $tmpfile->writeWithSeparator($handlerResult, $separator);
                 }
-                $i++;
             }
-            if (!$loop) {
-                $continue = false;
-            }
-            if ($continue) {
-                $temp .= $exportTool->separator($exportToolParams);
-            }
-            $tmpfile->write($temp);
-        }
-        return true;
+            $params['page'] += 1;
+        } while ($loop && $continue);
+
+        return $elementCounter;
     }
 
     public function set_filter_uuid(&$params, $conditions, $options)

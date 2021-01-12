@@ -11,8 +11,8 @@
     <div style="background-color:#f7f7f9;width:100%;">
         <span><?php echo __('Currently installed version…');?>
             <?php
-
-                switch ($version['upToDate']) {
+                $upToDate = isset($version['upToDate']) ? $version['upToDate'] : null;
+                switch ($upToDate) {
                     case 'newer':
                         $fontColour = 'orange';
                         $versionText = __('Upcoming development version');
@@ -27,34 +27,27 @@
                         break;
                     default:
                         $fontColour = 'red';
-                        $versionText = __('Could not retrieve version from github');
+                        $versionText = __('Could not retrieve version from GitHub');
                 }
             ?>
             <span style="color:<?php echo $fontColour; ?>;">
-                <?php
-                    echo $version['current'] . ' (' . h($commit) . ')';
+                <?= (isset($version['current']) ? $version['current'] : __('Unknown')) . ' (' . h($commit) . ')';
                 ?>
                 <?php if ($commit === ''): ?>
-                    <br />
+                    <br>
                     <span class="red bold apply_css_arrow">
-                        <?php echo __('Unable to fetch current commit id, check apache user read privilege.'); ?>
+                        <?php echo __('Unable to fetch current commit ID, check apache user read privilege.'); ?>
                     </span>
                 <?php endif; ?>
             </span>
         </span><br />
         <span><?php echo __('Latest available version…');?>
             <span style="color:<?php echo $fontColour; ?>;">
-                <?php
-                    echo $version['newest'] . ' (' . $latestCommit . ')';
-                ?>
+                <?= (isset($version['newest']) ? $version['newest'] : __('Unknown')) . ' (' . (isset($latestCommit) ? $latestCommit : __('Unknown')) . ')' ?>
             </span>
         </span><br />
         <span><?php echo __('Status…');?>
-            <span style="color:<?php echo $fontColour; ?>;">
-                <?php
-                    echo $versionText;
-                ?>
-            </span>
+            <span style="color:<?php echo $fontColour; ?>;"><?= $versionText ?></span>
         </span><br />
         <span><?php echo __('Current branch…');?>
             <?php
@@ -65,7 +58,7 @@
             </span>
         </span><br />
         <pre class="hidden green bold" id="gitResult"></pre>
-        <button title="<?php echo __('Pull the latest MISP version from github');?>" class="btn btn-inverse" style="padding-top:1px;padding-bottom:1px;" onClick = "updateMISP();"><?php echo __('Update MISP');?></button>
+        <button title="<?php echo __('Pull the latest MISP version from GitHub');?>" class="btn btn-inverse" style="padding-top:1px;padding-bottom:1px;" onClick = "updateMISP();"><?php echo __('Update MISP');?></button>
         <a title="<?php echo __('Click the following button to go to the update progress page. This page lists all updates that are currently queued and executed.'); ?>" style="margin-left: 5px;" href="<?php echo $baseurl; ?>/servers/updateProgress/"><i class="fas fa-tasks"></i> <?php echo __('View Update Progress');?></a>
     </div>
     <h3><?php echo __('Submodules version');?>
@@ -171,29 +164,42 @@
     <?php
         endforeach;
     ?>
-    <h4><?php echo __('PHP Extensions');?></h4>
-        <?php
-            foreach (array('web', 'cli') as $context):
-        ?>
-            <div style="background-color:#f7f7f9;width:400px;">
-                <b><?php echo ucfirst(h($context));?></b><br />
-                <?php
-                    if (isset($extensions[$context]['extensions'])):
-                        foreach ($extensions[$context]['extensions'] as $extension => $status):
-                ?>
-                            <?php echo h($extension); ?>:… <span style="color:<?php echo $status ? 'green' : 'red';?>;font-weight:bold;"><?php echo $status ? __('OK') : __('Not loaded'); ?></span><br />
-                <?php
-                        endforeach;
-                    else:
-                ?>
-                        <span class="red"><?php echo __('Issues reading PHP settings. This could be due to the test script not being readable.');?></span>
-                <?php
-                    endif;
-                ?>
-            </div><br />
-        <?php
-            endforeach;
-        ?>
+    <h4><?= __('PHP Extensions') ?></h4>
+    <table class="table table-condensed table-bordered" style="width: 40vw">
+        <thead>
+            <tr>
+                <th><?= __('Extension') ?></th>
+                <th><?= __('Required') ?></th>
+                <th><?= __('Why to install') ?></th>
+                <th><?= __('Web') ?></th>
+                <th><?= __('CLI') ?></th>
+            </tr>
+        </thead>
+        <tbody>
+        <?php foreach ($extensions['extensions'] as $extension => $info): ?>
+        <tr>
+            <td class="bold"><?= h($extension) ?></td>
+            <td><?= $info['required'] ? '<i class="black fa fa-check" role="img" aria-label="' .  __('Yes') . '"></i>' : '<i class="black fa fa-times" role="img" aria-label="' .  __('No') . '"></i>' ?></td>
+            <td><?= $info['info'] ?></td>
+            <?php foreach (['web', 'cli'] as $type): ?>
+            <td><?php
+                $version = $info["{$type}_version"];
+                $outdated = $info["{$type}_version_outdated"];
+                if ($version && !$outdated) {
+                    echo '<i class="green fa fa-check" role="img" aria-label="' .  __('Yes') . '"></i> (' . h($version) .')';
+                } else {
+                    echo '<i class="red fa fa-times" role="img" aria-label="' .  __('No') . '"></i>';
+                    if ($outdated) {
+                        echo '<br>' . __("Version %s installed, but required at least %s", h($version), h($info['required_version']));
+                    }
+                }
+            ?></td>
+            <?php endforeach; ?>
+        </tr>
+        <?php endforeach; ?>
+        </tbody>
+    </table>
+
     <?php
         echo '<div style="width:400px;">';
         echo $this->element('/genericElements/IndexTable/index_table', array(
@@ -351,12 +357,12 @@
     <p><?php echo __('This tool tests whether your GnuPG is set up correctly or not.');?></p>
     <div style="background-color:#f7f7f9;width:400px;">
         <?php
-            $colour = 'green';
-            $message = $gpgErrors[$gpgStatus];
-            if ($gpgStatus > 0) {
-                $colour = 'red';
+            $message = $gpgErrors[$gpgStatus['status']];
+            $color = $gpgStatus['status'] === 0 ? 'green' : 'red';
+            echo __('GnuPG installation and settings') . '…<span style="color:' . $color . '">' . $message . '</span><br>';
+            if ($gpgStatus['version']) {
+                echo __('GnuPG version: %s', $gpgStatus['version'] ?: __('N/A'));
             }
-            echo __('GnuPG installation and settings') . '…<span style="color:' . $colour . ';">' . $message . '</span>';
         ?>
     </div>
     <h3><?php echo __('ZeroMQ');?></h3>
@@ -428,6 +434,13 @@
     <?php
         endif;
     ?>
+    <h3><?php echo __('Upgrade authkeys keys to the advanced keys format'); ?><a id="advanced_authkey_update">&nbsp</a></h3>
+    <p>
+        <?php
+            echo __('MISP can store the user API keys either in the clear directly attached to the users, or as of recently, it can generate a list of hashed keys for different purposes. If the latter feature is enabled, it might be useful to move all existing keys over to the new format so that users do not lose access to the system. In order to do so, run the following functionality.');
+        ?>
+        <?php echo $this->Form->postLink('<span class="btn btn-inverse" style="padding-top:1px;padding-bottom:1px;">' . __('Update Authkeys to advanced Authkeys') . '</span>', $baseurl . '/users/updateToAdvancedAuthKeys', array('escape' => false));?>
+    </p>
     <h3><?php echo __('Clean model cache');?></h3>
     <p><?php echo __('If you ever run into issues with missing database fields / tables, please run the following script to clean the model cache.');?></p>
     <?php echo $this->Form->postLink('<span class="btn btn-inverse" style="padding-top:1px;padding-bottom:1px;">' . __('Clean cache') . '</span>', $baseurl . '/events/cleanModelCaches', array('escape' => false));?>
