@@ -94,10 +94,10 @@ class JSONConverterTool
         }
         unset($event['Event']['user_id']);
         if (isset($event['Event']['Attribute'])) {
-            $event['Event']['Attribute'] = $this->__cleanAttributes($event['Event']['Attribute'], $tempSightings);
+            $event['Event']['Attribute'] = $this->__cleanAttributes($event['Event']['Attribute'], $tempSightings, $event['Event']);
         }
         if (isset($event['Event']['Object'])) {
-            $event['Event']['Object'] = $this->__cleanObjects($event['Event']['Object'], $tempSightings);
+            $event['Event']['Object'] = $this->__cleanObjects($event['Event']['Object'], $tempSightings, $event['Event']);
         }
         if (!empty($event['Sighting'])) {
             unset($event['Sighting']);
@@ -118,7 +118,7 @@ class JSONConverterTool
         return json_encode($result, JSON_PRETTY_PRINT);
     }
 
-    private function __cleanAttributes($attributes, $tempSightings = array())
+    private function __cleanAttributes($attributes, $tempSightings = array(), $event)
     {
         // remove value1 and value2 from the output and remove invalid utf8 characters for the xml parser
         foreach ($attributes as $key => $attribute) {
@@ -129,7 +129,7 @@ class JSONConverterTool
             unset($attributes[$key]['value2']);
             unset($attributes[$key]['category_order']);
             if (isset($event['RelatedAttribute'][$attribute['id']])) {
-                $attributes[$key]['RelatedAttribute'] = $event['Event']['RelatedAttribute'][$attribute['id']];
+                $attributes[$key]['RelatedAttribute'] = $event['RelatedAttribute'][$attribute['id']];
                 foreach ($attributes[$key]['RelatedAttribute'] as &$ra) {
                     $ra = array('Attribute' => $ra);
                 }
@@ -148,11 +148,11 @@ class JSONConverterTool
         return $attributes;
     }
 
-    private function __cleanObjects($objects, $tempSightings = array())
+    private function __cleanObjects($objects, $tempSightings = array(), $event)
     {
         foreach ($objects as $k => $object) {
             if (!empty($object['Attribute'])) {
-                $objects[$k]['Attribute'] = $this->__cleanAttributes($object['Attribute'], $tempSightings);
+                $objects[$k]['Attribute'] = $this->__cleanAttributes($object['Attribute'], $tempSightings, $event);
             } else {
                 unset($objects[$k]);
             }

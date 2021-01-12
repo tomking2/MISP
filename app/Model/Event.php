@@ -970,7 +970,7 @@ class Event extends AppModel
         $events = $this->find('all', array(
             'recursive' => -1,
             'conditions' => $conditions,
-            'fields' => array('Event.id', 'Event.orgc_id', 'Event.info', 'Event.date'),
+            'fields' => array('Event.id', 'Event.orgc_id', 'Event.info', 'Event.date', 'Event.sharing_group_id'),
         ));
 
         $eventInfos = array();
@@ -994,6 +994,7 @@ class Event extends AppModel
                 'org_id' => $eventInfo['orgc_id'],
                 'info' => $eventInfo['info'],
                 'date' => $eventInfo['date'],
+                'sharing_group_id' => $eventInfo['sharing_group_id']
             );
             $parentId = $correlation[$settings['parentIdField']];
             $relatedAttributes[$parentId][] = $current;
