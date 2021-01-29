@@ -131,13 +131,17 @@
             }
             $phpversions[$source]['phpcolour'] = 'green';
             $phpversions[$source]['phptext'] = __('Up to date');
-            if (version_compare($phpversions[$source]['phpversion'], $phprec) < 1) {
+            if (version_compare($phpversions[$source]['phpversion'], $phprec) < 0) {
                 $phpversions[$source]['phpcolour'] = 'orange';
                 $phpversions[$source]['phptext'] = __('Update highly recommended');
-                if (version_compare($phpversions[$source]['phpversion'], $phpmin) < 1) {
+                if (version_compare($phpversions[$source]['phpversion'], $phpmin) < 0) {
                     $phpversions[$source]['phpcolour'] = 'red';
                     $phpversions[$source]['phptext'] = __('Version unsupported, update ASAP');
                 }
+            }
+            if (version_compare($phpversions[$source]['phpversion'], $phptoonew) >= 0) {
+                $phpversions[$source]['phpcolour'] = 'red';
+                $phpversions[$source]['phptext'] = __('Version unsupported, 8.x support not available yet.');
             }
         }
         if (version_compare($phpversion, $phprec) < 1) {

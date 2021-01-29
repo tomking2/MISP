@@ -2470,6 +2470,12 @@ class Event extends AppModel
             $event['Event']['extensionEvents'][$eventMeta['id']] = $eventMeta;
             $thingsToMerge = array('Attribute', 'Object', 'ShadowAttribute', 'Galaxy');
             foreach ($thingsToMerge as $thingToMerge) {
+                if (!isset($event[$thingToMerge])) {
+                    $event[$thingToMerge] = [];
+                }
+                if (!isset($extensionEvent[$thingToMerge])) {
+                    $extensionEvent[$thingToMerge] = [];
+                }
                 $event[$thingToMerge] = array_merge($event[$thingToMerge], $extensionEvent[$thingToMerge]);
             }
             // Merge event reports if requested
@@ -4087,7 +4093,7 @@ class Event extends AppModel
             if (isset($data['Event']['EventReport'])) {
                 foreach ($data['Event']['EventReport'] as $i => $report) {
                     $nothingToChange = false;
-                    $result = $this->EventReport->editReport($user, $report, $this->id, true, $nothingToChange);
+                    $result = $this->EventReport->editReport($user, ['EventReport' => $report], $this->id, true, $nothingToChange);
                     if (!empty($result)) {
                         $validationErrors['EventReport'][] = $result;
                     }
