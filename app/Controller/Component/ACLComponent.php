@@ -89,10 +89,15 @@ class ACLComponent extends Component
             ],
             'correlationExclusions' => [
                 'add' => [],
+                'edit' => [],
                 'clean' => [],
                 'delete' => [],
                 'index' => [],
                 'view' => []
+            ],
+            'correlations' => [
+                'generateTopCorrelations' => [],
+                'top' => []
             ],
             'dashboards' => array(
                 'getForm' => array('*'),
@@ -296,7 +301,10 @@ class ACLComponent extends Component
                         'perm_site_admin',
                     ]],
                     'toggleSelected' => array('perm_site_admin'),
-                    'view' => array('*'),
+                    'view' => ['OR' => [
+                        'host_org_user',
+                        'perm_site_admin',
+                    ]],
             ),
             'galaxies' => array(
                 'attachCluster' => array('perm_tagger'),
@@ -315,6 +323,7 @@ class ACLComponent extends Component
                 'update' => array(),
                 'view' => array('*'),
                 'viewGraph' => array('*'),
+                'wipe_default' => array(),
             ),
             'galaxyClusterBlocklists' => array(
                 'add' => array(),
@@ -355,7 +364,7 @@ class ACLComponent extends Component
             'jobs' => array(
                     'cache' => array('*'),
                     'getError' => array(),
-                    'getGenerateCorrelationProgress' => array('*'),
+                    'getGenerateCorrelationProgress' => array(),
                     'getProgress' => array('*'),
                     'index' => array(),
                     'clearJobs' => array()
@@ -490,6 +499,7 @@ class ACLComponent extends Component
                     'fetchServersForSG' => array('perm_sharing_group'),
                     'filterEventIndex' => array(),
                     'getApiInfo' => array('*'),
+                    'getAvailableSyncFilteringRules' => array('*'),
                     'getInstanceUUID' => array('perm_sync'),
                     'getPyMISPVersion' => array('*'),
                     'getRemoteUser' => array(),
@@ -512,8 +522,10 @@ class ACLComponent extends Component
                     'pull' => array(),
                     'purgeSessions' => array(),
                     'push' => array(),
+                    'queryAvailableSyncFilteringRules' => array('*'),
                     'releaseUpdateLock' => array(),
                     'resetRemoteAuthKey' => array(),
+                    'removeOrphanedCorrelations' => array('perm_site_admin'),
                     'rest' => array('perm_auth'),
                     'restartDeadWorkers' => array(),
                     'restartWorkers' => array(),
@@ -687,7 +699,7 @@ class ACLComponent extends Component
                     'register' => array('*'),
                     'registrations' => array('perm_site_admin'),
                     'resetAllSyncAuthKeys' => array(),
-                    'resetauthkey' => array('*'),
+                    'resetauthkey' => ['AND' => ['self_management_enabled', 'perm_auth']],
                     'request_API' => array('*'),
                     'routeafterlogin' => array('*'),
                     'statistics' => array('*'),
@@ -706,7 +718,8 @@ class ACLComponent extends Component
                     'setSetting' => array('*'),
                     'getSetting' => array('*'),
                     'delete' => array('*'),
-                    'setHomePage' => array('*')
+                    'setHomePage' => array('*'),
+                'eventIndexColumnToggle' => ['*'],
             ),
             'warninglists' => array(
                     'checkValue' => array('perm_auth'),
@@ -727,6 +740,7 @@ class ACLComponent extends Component
             ),
             'eventGraph' => array(
                     'view' => array('*'),
+                    'viewPicture' => array('*'),
                     'add' => array('perm_add'),
                     'delete' => array('perm_modify'),
             )

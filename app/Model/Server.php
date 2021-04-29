@@ -4,6 +4,7 @@ App::uses('GpgTool', 'Tools');
 
 /**
  * @property-read array $serverSettings
+ * @property Organisation $Organisation
  */
 class Server extends AppModel
 {
@@ -1124,7 +1125,7 @@ class Server extends AppModel
      * @param  array $server
      * @param  array $user
      * @param  string|int $technique Either the 'full' string or the event id
-     * @param  bool  $event
+     * @param  array|bool  $event
      * @return array List of successfully pushed clusters
      */
     public function syncGalaxyClusters($HttpSocket, array $server, array $user, $technique='full', $event=false)
@@ -1259,16 +1260,23 @@ class Server extends AppModel
         return true;
     }
 
+    /**
+     * @return array
+     */
     public function getCurrentServerSettings()
     {
-        $this->Module = ClassRegistry::init('Module');
         $serverSettings = $this->serverSettings;
         $moduleTypes = array('Enrichment', 'Import', 'Export', 'Cortex');
         $serverSettings = $this->readModuleSettings($serverSettings, $moduleTypes);
         return $serverSettings;
     }
 
-    private function readModuleSettings($serverSettings, $moduleTypes)
+    /**
+     * @param array $serverSettings
+     * @param array $moduleTypes
+     * @return array
+     */
+    private function readModuleSettings(array $serverSettings, array $moduleTypes)
     {
         $this->Module = ClassRegistry::init('Module');
         foreach ($moduleTypes as $moduleType) {
@@ -1277,12 +1285,12 @@ class Server extends AppModel
                 foreach ($results as $module => $data) {
                     foreach ($data as $result) {
                         $setting = array('level' => 1, 'errorMessage' => '');
-                        if ($result['type'] == 'boolean') {
+                        if ($result['type'] === 'boolean') {
                             $setting['test'] = 'testBool';
                             $setting['type'] = 'boolean';
                             $setting['description'] = __('Enable or disable the %s module.', $module);
                             $setting['value'] = false;
-                        } elseif ($result['type'] == 'orgs') {
+                        } elseif ($result['type'] === 'orgs') {
                             $setting['description'] = __('Restrict the %s module to the given organisation.', $module);
                             $setting['value'] = 0;
                             $setting['test'] = 'testLocalOrg';
@@ -1359,15 +1367,11 @@ class Server extends AppModel
 
     public function serverSettingsRead($unsorted = false)
     {
-        $this->Module = ClassRegistry::init('Module');
         $serverSettings = $this->getCurrentServerSettings();
         $currentSettings = Configure::read();
-        if (Configure::read('Plugin.Enrichment_services_enable')) {
-            $this->readModuleSettings($serverSettings, array('Enrichment'));
-        }
         $finalSettingsUnsorted = $this->__serverSettingsRead($serverSettings, $currentSettings);
         foreach ($finalSettingsUnsorted as $key => $temp) {
-            if (in_array($temp['tab'], array_keys($this->__settingTabMergeRules))) {
+            if (isset($this->__settingTabMergeRules[$temp['tab']])) {
                 $finalSettingsUnsorted[$key]['tab'] = $this->__settingTabMergeRules[$temp['tab']];
             }
         }
@@ -1446,14 +1450,19 @@ class Server extends AppModel
         return $options;
     }
 
-    private function loadLocalOrganisations()
+    private function loadLocalOrganisations($strict = false)
     {
         $localOrgs = $this->Organisation->find('list', array(
             'conditions' => array('local' => 1),
             'recursive' => -1,
             'fields' => array('Organisation.id', 'Organisation.name')
         ));
-        return array_replace(array(0 => __('No organisation selected.')), $localOrgs);
+
+        if(!$strict){
+            return array_replace(array(0 => __('No organisation selected.')), $localOrgs);
+        }
+
+        return $localOrgs;
     }
 
     public function testTagCollections($value)
@@ -1511,6 +1520,15 @@ class Server extends AppModel
     }
 
     public function testLocalOrg($value)
+    {
+        if ($value == 0) {
+            return true; // `No organisation selected` option
+        }
+
+        return $this->testLocalOrgStrict($value);
+    }
+
+    public function testLocalOrgStrict($value)
     {
         $this->Organisation = ClassRegistry::init('Organisation');
         if ($value == 0) {
@@ -2185,13 +2203,13 @@ class Server extends AppModel
             $this->Log = ClassRegistry::init('Log');
             $this->Log->create();
             $this->Log->save(array(
-                    'org' => 'SYSTEM',
-                    'model' => 'Server',
-                    'model_id' => $id,
-                    'email' => 'SYSTEM',
-                    'action' => 'error',
-                    'user_id' => 0,
-                    'title' => 'Error: Tried to modify server settings but current config is broken.',
+                'org' => 'SYSTEM',
+                'model' => 'Server',
+                'model_id' => 0,
+                'email' => 'SYSTEM',
+                'action' => 'error',
+                'user_id' => 0,
+                'title' => 'Error: Tried to modify server settings but current config is broken.',
             ));
             return false;
         }
@@ -2230,7 +2248,7 @@ class Server extends AppModel
             'debug', 'MISP', 'GnuPG', 'SMIME', 'Proxy', 'SecureAuth',
             'Security', 'Session.defaults', 'Session.timeout', 'Session.cookieTimeout',
             'Session.autoRegenerate', 'Session.checkAgent', 'site_admin_debug',
-            'Plugin', 'CertAuth', 'ApacheShibbAuth', 'ApacheSecureAuth'
+            'Plugin', 'CertAuth', 'ApacheShibbAuth', 'ApacheSecureAuth', 'OidcAuth', 'AadAuth'
         );
         $settingsArray = array();
         foreach ($settingsToSave as $setting) {
@@ -2241,11 +2259,13 @@ class Server extends AppModel
         if (function_exists('opcache_reset')) {
             opcache_reset();
         }
+        $previous_file_perm = substr(sprintf('%o', fileperms(APP . 'Config' . DS . 'config.php')), -4);
         if (empty(Configure::read('MISP.server_settings_skip_backup_rotate'))) {
             $randomFilename = $this->generateRandomFileName();
-            // To protect us from 2 admin users having a concurent file write to the config file, solar flares and the bogeyman
+            // To protect us from 2 admin users having a concurrent file write to the config file, solar flares and the bogeyman
             file_put_contents(APP . 'Config' . DS . $randomFilename, $settingsString);
             rename(APP . 'Config' . DS . $randomFilename, APP . 'Config' . DS . 'config.php');
+            chmod(APP . 'Config' . DS . 'config.php', octdec($previous_file_perm));
             $config_saved = file_get_contents(APP . 'Config' . DS . 'config.php');
             // if the saved config file is empty, restore the backup.
             if (strlen($config_saved) < 20) {
@@ -2253,14 +2273,14 @@ class Server extends AppModel
                 $this->Log = ClassRegistry::init('Log');
                 $this->Log->create();
                 $this->Log->save(array(
-                        'org' => 'SYSTEM',
-                        'model' => 'Server',
-                        'model_id' => $id,
-                        'email' => 'SYSTEM',
-                        'action' => 'error',
-                        'user_id' => 0,
-                        'title' => 'Error: Something went wrong saving the config file, reverted to backup file.',
-                ));
+                    'org' => 'SYSTEM',
+                    'model' => 'Server',
+                    'model_id' => 0,
+                    'email' => 'SYSTEM',
+                    'action' => 'error',
+                    'user_id' => 0,
+                    'title' => 'Error: Something went wrong saving the config file, reverted to backup file.',
+               ));
                 return false;
             }
         } else {
@@ -3920,16 +3940,15 @@ class Server extends AppModel
         if (Configure::read('MISP.background_jobs')) {
             $job = ClassRegistry::init('Job');
             $job->create();
-            $eventModel = ClassRegistry::init('Event');
             $data = array(
-                    'worker' => $eventModel->__getPrioWorkerIfPossible(),
-                    'job_type' => __('update_after_pull'),
-                    'job_input' => __('Updating: ' . $submodule_name),
-                    'status' => 0,
-                    'retries' => 0,
-                    'org_id' => $user['org_id'],
-                    'org' => $user['Organisation']['name'],
-                    'message' => 'Update the database after PULLing the submodule(s).',
+                'worker' => 'prio',
+                'job_type' => __('update_after_pull'),
+                'job_input' => __('Updating: ' . $submodule_name),
+                'status' => 0,
+                'retries' => 0,
+                'org_id' => $user['org_id'],
+                'org' => $user['Organisation']['name'],
+                'message' => 'Update the database after PULLing the submodule(s).',
             );
             $job->save($data);
             $jobId = $job->id;
@@ -4409,6 +4428,80 @@ class Server extends AppModel
         return parent::__get($name);
     }
 
+    public function removeOrphanedCorrelations()
+    {
+        $this->Correlation = ClassRegistry::init('Correlation');
+        $orphansLeft = $this->Correlation->find('all', [
+            'joins' => [
+                [
+                    'table' => 'attributes',
+                    'alias' => 'Attribute',
+                    'type' => 'LEFT',
+                    'conditions' => [
+                        'OR' => [
+                            'Correlation.attribute_id = Attribute.id',
+                        ]
+                        
+                    ]
+                ]
+            ],
+            'conditions' => [
+                'Attribute.id IS NULL'
+            ],
+        ]);
+        $orphansRight = $this->Correlation->find('all', [
+            'conditions' => [
+                '1_attribute_id' => Hash::extract($orphansLeft, '{n}.Correlation.attribute_id')
+            ]
+        ]);
+        $orphans = array_merge(
+            Hash::extract($orphansLeft, '{n}.Correlation.id'),
+            Hash::extract($orphansRight, '{n}.Correlation.id')
+        );
+        $success = $this->Correlation->deleteAll([
+            'Correlation.id' => $orphans
+        ]);
+        return $success;
+    }
+
+    public function queryAvailableSyncFilteringRules($server)
+    {
+        $HttpSocket = $this->setupHttpSocket($server, null);
+        $uri = $server['Server']['url'] . '/servers/getAvailableSyncFilteringRules';
+        $request = $this->setupSyncRequest($server);
+        $response = $HttpSocket->get($uri, false, $request);
+        if ($response === false) {
+            throw new Exception(__('Connection failed for unknown reason.'));
+        }
+
+        $syncFilteringRules = [];
+        if ($response->isOk()) {
+            $syncFilteringRules = $this->jsonDecode($response->body());
+        } else {
+            throw new Exception(__('Reponse was not OK. (HTTP code: %s)', $response->code));
+        }
+        return $syncFilteringRules;
+    }
+
+    public function getAvailableSyncFilteringRules($user)
+    {
+        $this->Organisation = ClassRegistry::init('Organisation');
+        $this->Tag = ClassRegistry::init('Tag');
+        $organisations = [];
+        if ($user['Role']['perm_sharing_group'] || !Configure::read('Security.hide_organisation_index_from_users')) {
+            $organisations = $this->Organisation->find('list', [
+                'fields' => 'name'
+            ]);
+        }
+        $tags = $this->Tag->find('list', [
+            'fields' => 'name'
+        ]);
+        return [
+            'organisations' => array_values($organisations),
+            'tags' => array_values($tags),
+        ];
+    }
+
     /**
      * Generate just when required
      * @return array[]
@@ -4673,10 +4766,10 @@ class Server extends AppModel
                     'description' => __('The hosting organisation of this instance. If this is not selected then replication instances cannot be added.'),
                     'value' => '0',
                     'errorMessage' => '',
-                    'test' => 'testLocalOrg',
+                    'test' => 'testLocalOrgStrict',
                     'type' => 'numeric',
                     'optionsSource' => function () {
-                        return $this->loadLocalOrganisations();
+                        return $this->loadLocalOrganisations(true);
                     },
                 ),
                 'uuid' => array(
@@ -4735,6 +4828,14 @@ class Server extends AppModel
                     'test' => 'testBool',
                     'type' => 'boolean',
                 ),
+                'email_from_name' => [
+                    'level' => 2,
+                    'description' => __('Notification e-mail sender name.'),
+                    'value' => '',
+                    'errorMessage' => '',
+                    'test' => 'testForEmpty',
+                    'type' => 'string',
+                ],
                 'taxii_sync' => array(
                     'level' => 3,
                     'description' => __('This setting is deprecated and can be safely removed.'),
@@ -4852,12 +4953,20 @@ class Server extends AppModel
                 ),
                 'extended_alert_subject' => array(
                     'level' => 1,
-                    'description' => __('enabling this flag will allow the event description to be transmitted in the alert e-mail\'s subject. Be aware that this is not encrypted by GnuPG, so only enable it if you accept that part of the event description will be sent out in clear-text.'),
+                    'description' => __('Enabling this flag will allow the event description to be transmitted in the alert e-mail\'s subject. Be aware that this is not encrypted by GnuPG, so only enable it if you accept that part of the event description will be sent out in clear-text.'),
                     'value' => false,
                     'errorMessage' => '',
                     'test' => 'testBool',
                     'type' => 'boolean'
                 ),
+                'event_alert_metadata_only' => [
+                    'level' => self::SETTING_OPTIONAL,
+                    'description' => __('Send just event metadata (attributes and objects will be omitted) for event alert.'),
+                    'value' => false,
+                    'errorMessage' => '',
+                    'test' => 'testBool',
+                    'type' => 'boolean'
+                ],
                 'default_event_distribution' => array(
                     'level' => 0,
                     'description' => __('The default distribution setting for events (0-3).'),
@@ -5592,6 +5701,14 @@ class Server extends AppModel
                     'editable' => false,
                     'redacted' => true
                 ),
+                'log_each_individual_auth_fail' =>[
+                    'level' => 1,
+                    'description' => __('By default API authentication failures that happen within the same hour for the same key are omitted and a single log entry is generated. This allows administrators to more easily keep track of attackers that try to brute force API authentication, by reducing the noise generated by expired API keys. On the other hand, this makes little sense for internal MISP instances where detecting the misconfiguration of tools becomes more interesting, so if you fall into the latter category, enable this feature.'),
+                    'value' => false,
+                    'errorMessage' => '',
+                    'test' => 'testBool',
+                    'type' => 'boolean',
+                ],
                 'advanced_authkeys' => array(
                     'level' => 0,
                     'description' => __('Advanced authkeys will allow each user to create and manage a set of authkeys for themselves, each with individual expirations and comments. API keys are stored in a hashed state and can no longer be recovered from MISP. Users will be prompted to note down their key when creating a new authkey. You can generate a new set of API keys for all users on demand in the diagnostics page, or by triggering %s.', sprintf('<a href="%s/servers/serverSettings/diagnostics#advanced_authkey_update">%s</a>', $this->baseurl, __('the advanced upgrade'))),
@@ -5691,6 +5808,15 @@ class Server extends AppModel
                 'check_sec_fetch_site_header' => [
                     'level' => 0,
                     'description' => __('If enabled, any POST, PUT or AJAX request will be allow just when Sec-Fetch-Site header is not defined or contains "same-origin".'),
+                    'value' => false,
+                    'errorMessage' => '',
+                    'test' => 'testBool',
+                    'type' => 'boolean',
+                    'null' => true,
+                ],
+                'force_https' => [
+                    'level' => self::SETTING_OPTIONAL,
+                    'description' => __('If enabled, MISP server will consider all requests as secure. This is usually useful when you run MISP behind reverse proxy that terminates HTTPS.'),
                     'value' => false,
                     'errorMessage' => '',
                     'test' => 'testBool',
