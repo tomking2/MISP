@@ -142,7 +142,7 @@ class JSONConverterTool
         }
     }
 
-    private function __cleanAttributes($attributes, $tempSightings = array(), $event)
+    private function __cleanAttributes($attributes, $tempSightings = array(), $event = array())
     {
         // remove value1 and value2 from the output and remove invalid utf8 characters for the xml parser
         foreach ($attributes as $key => $attribute) {
