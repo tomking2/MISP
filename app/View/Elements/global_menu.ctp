@@ -34,11 +34,6 @@
                         'url' => $baseurl . '/attributes/search'
                     ),
                     array(
-                        'text' => __('REST client'),
-                        'url' => $baseurl . '/servers/rest',
-                        'requirement' => $canAccess('servers', 'rest'),
-                    ),
-                    array(
                         'type' => 'separator'
                     ),
                     array(
@@ -163,17 +158,17 @@
                         'requirement' => !$isAclRegexp
                     ),
                     array(
-                        'text' => __('List Warninglists'),
+                        'text' => __('Warninglists'),
                         'url' => $baseurl . '/warninglists/index'
                     ),
                     array(
-                        'text' => __('List Noticelists'),
+                        'text' => __('Noticelists'),
                         'url' => $baseurl . '/noticelists/index'
                     ),
                     array(
-                        'text' => __('List Correlation Exclusions'),
-			'url' => $baseurl . '/correlation_exclusions/index',
-			'requirement' => $canAccess('correlation_exclusions', 'index'),
+                        'text' => __('Correlation Exclusions'),
+		            	'url' => $baseurl . '/correlation_exclusions/index',
+	            		'requirement' => $canAccess('correlation_exclusions', 'index'),
                     )
                 )
             ),
@@ -474,6 +469,21 @@
                     array(
                         'text' => __('Search Logs'),
                         'url' => $baseurl . '/admin/logs/search'
+                    )
+                )
+                    ),
+            array(
+                'type' => 'root',
+                'text' => __('API'),
+                'children' => array(
+                    array(
+                        'text' => __('OpenAPI'),
+                        'url' => $baseurl . '/servers/openapi'
+                    ),
+                    array(
+                        'text' => __('REST client'),
+                        'url' => $baseurl . '/servers/rest',
+                        'requirement' => $canAccess('servers', 'rest')
                     )
                 )
             )

@@ -45,6 +45,8 @@ class OrganisationsController extends AppController
             $searchall = $this->passedArgs['all'];
         } elseif (isset($this->passedArgs['searchall'])) {
             $searchall = $this->passedArgs['searchall'];
+        } elseif (isset($this->passedArgs['quickFilter'])) {
+            $searchall = $this->passedArgs['quickFilter'];
         }
 
         if (isset($searchall) && !empty($searchall)) {
@@ -130,13 +132,13 @@ class OrganisationsController extends AppController
                 $this->__uploadLogo($this->Organisation->id);
                 if ($this->_isRest()) {
                     $org = $this->Organisation->find('first', array(
-                            'conditions' => array('Organisation.id' => $this->Organisation->id),
-                            'recursive' => -1
+                        'conditions' => array('Organisation.id' => $this->Organisation->id),
+                        'recursive' => -1
                     ));
                     return $this->RestResponse->viewData($org, $this->response->type());
                 } else {
                     $this->Flash->success(__('The organisation has been successfully added.'));
-                    $this->redirect(array('admin' => false, 'action' => 'index'));
+                    $this->redirect(array('admin' => false, 'action' => 'view', $this->Organisation->id));
                 }
             } else {
                 if ($this->_isRest()) {

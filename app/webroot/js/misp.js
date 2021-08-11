@@ -3282,23 +3282,25 @@ function getRemoteSyncUser(id) {
     var resultContainer = $("#sync_user_test_" + id);
     $.ajax({
         url: baseurl + '/servers/getRemoteUser/' + id,
-        type:'GET',
+        type: 'GET',
         beforeSend: function () {
-            resultContainer.html('Running test...');
+            resultContainer.text('Running test...');
         },
         error: function() {
-            resultContainer.html('Internal error.');
+            resultContainer.html('<span class="red bold">Internal error</span>');
         },
         success: function(response) {
             resultContainer.empty();
-            if (typeof(response.message) != 'undefined') {
+            if (typeof response !== 'object') {
+                resultContainer.html('<span class="red bold">Internal error</span>');
+            } else if ("error" in response) {
                 resultContainer.append(
                     $('<span>')
-                    .attr('class', 'red bold')
-                    .text('Error')
+                        .attr('class', 'red bold')
+                        .text('Error')
                 ).append(
                     $('<span>')
-                    .text(': #' + response.message)
+                        .text(': #' + response.error)
                 );
             } else {
                 Object.keys(response).forEach(function(key) {
@@ -3676,7 +3678,7 @@ function toggleBoolFilter(url, param) {
     });
     if (res[param] !== undefined) {
         if (param == 'deleted') {
-            res[param] = res[param] == 0 ? 2 : 0;
+            res[param] = res[param] == 0 ? 1 : 0;
         } else {
             res[param] = res[param] == 0 ? 1 : 0;
         }
@@ -3994,10 +3996,9 @@ function formCategoryChanged(id) {
 }
 
 function malwareCheckboxSetter(context) {
-    idDiv = "#" + context + "Category" +'Div';
     var value = $("#" + context + "Category").val();  // get the selected value
     // set the malware checkbox if the category is in the zip types
-    $("#" + context + "Malware").prop('checked', formZipTypeValues[value] == "true");
+    $("#" + context + "Malware").prop('checked', formZipTypeValues[value]);
 }
 
 function feedFormUpdate() {
@@ -5073,17 +5074,25 @@ function saveDashboardState() {
             dashBoardSettings.push(temp);
         }
     });
-    $.ajax({
-        data: {value: dashBoardSettings},
-        success:function (data, textStatus) {
-            showMessage('success', 'Dashboard settings saved.');
-        },
-        error: function (jqXHR, textStatus, errorThrown) {
-            showMessage('fail', textStatus + ": " + errorThrown);
-        },
-        type: "post",
-        url: baseurl + '/dashboards/updateSettings',
-    });
+    var url = baseurl + '/dashboards/updateSettings'
+    fetchFormDataAjax(url, function(formData) {
+        var $formContainer = $(formData)
+        $formContainer.find('#DashboardValue').val(JSON.stringify(dashBoardSettings))
+        var $theForm = $formContainer.find('form')
+        xhr({
+            data: $theForm.serialize(),
+            success:function (data) {
+                showMessage('success', 'Dashboard settings saved.');
+            },
+            error:function(jqXHR, textStatus, errorThrown) {
+                showMessage('fail', textStatus + ": " + errorThrown);
+            },
+            beforeSend:function() {
+            },
+            type:"post",
+            url: $theForm.attr('action')
+        });
+    })
 }
 
 function updateDashboardWidget(element) {
