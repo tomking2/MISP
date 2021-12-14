@@ -17,7 +17,6 @@ class AuditLogsController extends AppController
 
     /** @var string[] */
     private $models = [
-        'AdminSetting',
         'Attribute',
         'Allowedlist',
         'AuthKey',
@@ -38,6 +37,7 @@ class AuditLogsController extends AppController
         'Server',
         'ShadowAttribute',
         'SharingGroup',
+        'SystemSetting',
         'Tag',
         'TagCollection',
         'TagCollectionTag',
@@ -485,10 +485,12 @@ class AuditLogsController extends AppController
 
         if (!empty($eventIds)) {
             $this->loadModel('Event');
-            $events = $this->Event->fetchSimpleEvents($this->Auth->user(), [
-                'conditions' => ['Event.id' => array_unique($eventIds)],
+            $conditions = $this->Event->createEventConditions($this->Auth->user());
+            $conditions['Event.id'] = array_unique($eventIds);
+            $events = $this->Event->find('list', [
+                'conditions' => $conditions,
+                'fields' => ['Event.id', 'Event.info'],
             ]);
-            $events = array_column(array_column($events, 'Event'), null, 'id');
         }
 
         $links = [
@@ -498,7 +500,7 @@ class AuditLogsController extends AppController
             'Galaxy' => 'galaxies',
             'Organisation' => 'organisation',
             'Warninglist' => 'warninglists',
-            'User' => 'admin/user',
+            'User' => 'admin/users',
             'Role' => 'roles',
             'EventReport' => 'eventReports',
             'SharingGroup' => 'sharing_groups',
@@ -526,7 +528,7 @@ class AuditLogsController extends AppController
                 case 'Event':
                     if (isset($events[$modelId])) {
                         $url = '/events/view/' . $modelId;
-                        $eventInfo = $events[$modelId]['info'];
+                        $eventInfo = $events[$modelId];
                     }
                     break;
                 case 'ObjectReference':
@@ -536,7 +538,7 @@ class AuditLogsController extends AppController
                             $url .= '/deleted:2';
                         }
                         if (isset($events[$objects[$objectReferences[$modelId]]['event_id']])) {
-                            $eventInfo = $events[$objects[$objectReferences[$modelId]]['event_id']]['info'];
+                            $eventInfo = $events[$objects[$objectReferences[$modelId]]['event_id']];
                         }
                     }
                     break;
@@ -547,7 +549,7 @@ class AuditLogsController extends AppController
                             $url .= '/deleted:2';
                         }
                         if (isset($events[$objects[$modelId]['event_id']])) {
-                            $eventInfo = $events[$objects[$modelId]['event_id']]['info'];
+                            $eventInfo = $events[$objects[$modelId]['event_id']];
                         }
                     }
                     break;
@@ -558,7 +560,7 @@ class AuditLogsController extends AppController
                             $url .= '/deleted:2';
                         }
                         if (isset($events[$attributes[$modelId]['event_id']])) {
-                            $eventInfo = $events[$attributes[$modelId]['event_id']]['info'];
+                            $eventInfo = $events[$attributes[$modelId]['event_id']];
                         }
                     }
                     break;
@@ -566,7 +568,7 @@ class AuditLogsController extends AppController
                     if (isset($shadowAttributes[$modelId])) {
                         $url = '/events/view/' . $shadowAttributes[$modelId]['event_id'] . '/focus:' . $shadowAttributes[$modelId]['uuid'];
                         if (isset($events[$shadowAttributes[$modelId]['event_id']])) {
-                            $eventInfo = $events[$shadowAttributes[$modelId]['event_id']]['info'];
+                            $eventInfo = $events[$shadowAttributes[$modelId]['event_id']];
                         }
                     }
                     break;

@@ -4,6 +4,8 @@ App::uses('AppModel', 'Model');
 /**
  * @property EventTag $EventTag
  * @property AttributeTag $AttributeTag
+ * @property FavouriteTag $FavouriteTag
+ * @property Organisation $Organisation
  */
 class Tag extends AppModel
 {
@@ -22,28 +24,28 @@ class Tag extends AppModel
     );
 
     public $validate = array(
-            'name' => array(
-                    'required' => array(
-                        'rule' => array('notBlank', 'name'),
-                        'message' => 'This field is required.'
-                    ),
-                    'valueNotEmpty' => array(
-                        'rule' => array('valueNotEmpty', 'name'),
-                    ),
-                    'unique' => array(
-                            'rule' => 'isUnique',
-                            'message' => 'A similar name already exists.',
-                    ),
+        'name' => array(
+            'required' => array(
+                'rule' => array('notBlank', 'name'),
+                'message' => 'This field is required.'
             ),
-            'colour' => array(
-                    'valueNotEmpty' => array(
-                        'rule' => array('valueNotEmpty', 'colour'),
-                    ),
-                    'userdefined' => array(
-                            'rule' => 'validateColour',
-                            'message' => 'Colour has to be in the RGB format (#FFFFFF)',
-                    ),
+            'valueNotEmpty' => array(
+                'rule' => array('valueNotEmpty', 'name'),
             ),
+            'unique' => array(
+                'rule' => 'isUnique',
+                'message' => 'A similar name already exists.',
+            ),
+        ),
+        'colour' => array(
+            'valueNotEmpty' => array(
+                'rule' => array('valueNotEmpty', 'colour'),
+            ),
+            'userdefined' => array(
+                'rule' => 'validateColour',
+                'message' => 'Colour has to be in the RGB format (#FFFFFF)',
+            ),
+        ),
     );
 
     public $hasMany = array(
@@ -83,34 +85,35 @@ class Tag extends AppModel
 
     public function beforeValidate($options = array())
     {
-        parent::beforeValidate();
-        if (!isset($this->data['Tag']['org_id'])) {
-            $this->data['Tag']['org_id'] = 0;
+        $tag = &$this->data['Tag'];
+        if (!isset($tag['org_id'])) {
+            $tag['org_id'] = 0;
         }
-        if (!isset($this->data['Tag']['user_id'])) {
-            $this->data['Tag']['user_id'] = 0;
+        if (!isset($tag['user_id'])) {
+            $tag['user_id'] = 0;
         }
-        if (!isset($this->data['Tag']['hide_tag'])) {
-            $this->data['Tag']['hide_tag'] = Configure::read('MISP.incoming_tags_disabled_by_default') ? 1 : 0;
+        if (!isset($tag['hide_tag'])) {
+            $tag['hide_tag'] = Configure::read('MISP.incoming_tags_disabled_by_default') ? 1 : 0;
         }
-        if (!isset($this->data['Tag']['exportable'])) {
-            $this->data['Tag']['exportable'] = 1;
+        if (!isset($tag['exportable'])) {
+            $tag['exportable'] = 1;
         }
-        if (isset($this->data['Tag']['name']) && strlen($this->data['Tag']['name']) >= 255) {
-            $this->data['Tag']['name'] = substr($this->data['Tag']['name'], 0, 255);
+        if (!isset($tag['local_only'])) {
+            $tag['local_only'] = 0;
         }
-        $this->data['Tag']['is_galaxy'] = preg_match($this->reGalaxy, $this->data['Tag']['name']);
-        $this->data['Tag']['is_custom_galaxy'] = preg_match($this->reCustomGalaxy, $this->data['Tag']['name']);
+        if (isset($tag['name']) && strlen($tag['name']) >= 255) {
+            $tag['name'] = substr($tag['name'], 0, 255);
+        }
+        $tag['is_galaxy'] = preg_match($this->reGalaxy, $tag['name']);
+        $tag['is_custom_galaxy'] = preg_match($this->reCustomGalaxy, $tag['name']);
         return true;
     }
 
     public function afterSave($created, $options = array())
     {
-        parent::afterSave($created, $options);
         $pubToZmq = Configure::read('Plugin.ZeroMQ_enable') && Configure::read('Plugin.ZeroMQ_tag_notifications_enable');
-        $kafkaTopic = Configure::read('Plugin.Kafka_tag_notifications_topic');
-        $pubToKafka = Configure::read('Plugin.Kafka_enable') && Configure::read('Plugin.Kafka_tag_notifications_enable') && !empty($kafkaTopic);
-        if ($pubToZmq || $pubToKafka) {
+        $kafkaTopic = $this->kafkaTopic('tag');
+        if ($pubToZmq || $kafkaTopic) {
             $tag = $this->find('first', array(
                 'recursive' => -1,
                 'conditions' => array('Tag.id' => $this->id)
@@ -120,7 +123,7 @@ class Tag extends AppModel
                 $pubSubTool = $this->getPubSubTool();
                 $pubSubTool->tag_save($tag, $action);
             }
-            if ($pubToKafka) {
+            if ($kafkaTopic) {
                 $kafkaPubTool = $this->getKafkaPubTool();
                 $kafkaPubTool->publishJson($kafkaTopic, $tag, $action);
             }
@@ -130,9 +133,8 @@ class Tag extends AppModel
     public function beforeDelete($cascade = true)
     {
         $pubToZmq = Configure::read('Plugin.ZeroMQ_enable') && Configure::read('Plugin.ZeroMQ_tag_notifications_enable');
-        $kafkaTopic = Configure::read('Plugin.Kafka_tag_notifications_topic');
-        $pubToKafka = Configure::read('Plugin.Kafka_enable') && Configure::read('Plugin.Kafka_tag_notifications_enable') && !empty($kafkaTopic);
-        if ($pubToZmq || $pubToKafka) {
+        $kafkaTopic = $this->kafkaTopic('tag');
+        if ($pubToZmq || $kafkaTopic) {
             if (!empty($this->id)) {
                 $tag = $this->find('first', array(
                     'recursive' => -1,
@@ -142,7 +144,7 @@ class Tag extends AppModel
                     $pubSubTool = $this->getPubSubTool();
                     $pubSubTool->tag_save($tag, 'delete');
                 }
-                if ($pubToKafka) {
+                if ($kafkaTopic) {
                     $kafkaPubTool = $this->getKafkaPubTool();
                     $kafkaPubTool->publishJson($kafkaTopic, $tag, 'delete');
                 }
@@ -152,8 +154,7 @@ class Tag extends AppModel
 
     public function afterFind($results, $primary = false)
     {
-        $results = $this->checkForOverride($results);
-        return $results;
+        return $this->checkForOverride($results);
     }
 
     public function validateColour($fields)
@@ -164,12 +165,41 @@ class Tag extends AppModel
         return true;
     }
 
+    /**
+     * @param array $user
+     * @param string $tagName
+     * @return mixed|null
+     */
+    public function lookupTagIdForUser(array $user, $tagName)
+    {
+        $conditions = ['LOWER(Tag.name)' => mb_strtolower($tagName)];
+        if (!$user['Role']['perm_site_admin']) {
+            $conditions['Tag.org_id'] = [0, $user['org_id']];
+            $conditions['Tag.user_id'] = [0, $user['id']];
+        }
+        $tagId = $this->find('first', array(
+            'conditions' => $conditions,
+            'recursive' => -1,
+            'fields' => array('Tag.id'),
+            'callbacks' => false,
+        ));
+        if (empty($tagId)) {
+            return null;
+        }
+        return $tagId['Tag']['id'];
+    }
+
+    /**
+     * @param string $tagName
+     * @return int|mixed
+     */
     public function lookupTagIdFromName($tagName)
     {
         $tagId = $this->find('first', array(
-            'conditions' => array('LOWER(Tag.name)' => strtolower($tagName)),
+            'conditions' => array('LOWER(Tag.name)' => mb_strtolower($tagName)),
             'recursive' => -1,
-            'fields' => array('Tag.id')
+            'fields' => array('Tag.id'),
+            'callbacks' => false,
         ));
         if (empty($tagId)) {
             return -1;
@@ -189,44 +219,14 @@ class Tag extends AppModel
         return $this->find('all', array('conditions' => $conditions, 'recursive' => -1));
     }
 
-    // find all of the tag ids that belong to the accepted tag names and the rejected tag names
-    public function fetchTagIdsFromFilter($accept = array(), $reject = array())
+    /**
+     * @param array $accept
+     * @param array $reject
+     * @deprecated Use EventTag::fetchEventTagIds instead
+     */
+    public function fetchEventTagIds($accept, $reject)
     {
-        $results = array(0 => array(), 1 => array());
-        if (!empty($accept)) {
-            foreach ($accept as $tag) {
-                $temp = $this->lookupTagIdFromName($tag);
-                if (!in_array($temp, $results[0])) {
-                    $results[0][] = $temp;
-                }
-            }
-        }
-        if (!empty($reject)) {
-            foreach ($reject as $tag) {
-                $temp = $this->lookupTagIdFromName($tag);
-                if (!in_array($temp, $results[1])) {
-                    $results[1][] = $temp;
-                }
-            }
-        }
-        return $results;
-    }
-
-    // find all of the event Ids that belong to the accepted tags and the rejected tags
-    public function fetchEventTagIds($accept = array(), $reject = array())
-    {
-        $acceptIds = array();
-        $rejectIds = array();
-        if (!empty($accept)) {
-            $acceptIds = $this->findEventIdsByTagNames($accept);
-            if (empty($acceptIds)) {
-                $acceptIds[] = -1;
-            }
-        }
-        if (!empty($reject)) {
-            $rejectIds = $this->findEventIdsByTagNames($reject);
-        }
-        return array($acceptIds, $rejectIds);
+        $this->EventTag->fetchEventTagIds($accept, $reject);
     }
 
     // find all of the tag Ids that belong to the accepted tags and the rejected tags
@@ -259,142 +259,92 @@ class Tag extends AppModel
         return array($acceptIds, $rejectIds);
     }
 
-    // pass a list of tag names to receive a list of matched tag IDs
+    /**
+     * pass a list of tag names to receive a list of matched tag IDs
+     * @param string|array $array
+     * @return array|int|null
+     */
     public function findTagIdsByTagNames($array)
     {
-        $ids = array();
-        $tag_ids = array();
         if (!is_array($array)) {
             $array = array($array);
         }
-        foreach ($array as $k => $tag) {
+        $tagIds = [];
+        $tagNames = [];
+        foreach ($array as  $tag) {
             if (is_numeric($tag)) {
-                $tag_ids[] = $tag;
-                unset($array[$k]);
-            }
-        }
-        $array = array_values($array);
-        if (!empty($array)) {
-            foreach ($array as $a) {
-                $conditions['OR'][] = array('Tag.name like' => $a);
-            }
-            $params = array(
-                    'recursive' => 1,
-                    'conditions' => $conditions,
-                    'fields' => array('Tag.id', 'Tag.id')
-            );
-            $result = $this->find('list', $params);
-            $tag_ids = array_merge($result, $tag_ids);
-        }
-        return array_values($tag_ids);
-    }
-
-    public function findEventIdsByTagNames($array)
-    {
-        $ids = array();
-        foreach ($array as $a) {
-            if (is_numeric($a)) {
-                $conditions['OR'][] = array('id' => $a);
+                $tagIds[] = $tag;
             } else {
-                $conditions['OR'][] = array('LOWER(name) like' => strtolower($a));
+                $tagNames[] = $tag;
             }
         }
-        $params = array(
+        if (!empty($tagNames)) {
+            $conditions = [];
+            foreach ($tagNames as $tagName) {
+                $conditions[] = array('Tag.name LIKE' => $tagName);
+            }
+            $result = $this->find('column', array(
                 'recursive' => 1,
-                'contain' => 'EventTag',
-                'conditions' => $conditions
-        );
-        $result = $this->find('all', $params);
-        foreach ($result as $tag) {
-            foreach ($tag['EventTag'] as $eventTag) {
-                $ids[] = $eventTag['event_id'];
-            }
+                'conditions' => ['OR' => $conditions],
+                'fields' => array('Tag.id')
+            ));
+            $tagIds = array_merge($result, $tagIds);
         }
-        return $ids;
+        return $tagIds;
     }
 
-    public function findAttributeIdsByAttributeTagNames($array)
-    {
-        $ids = array();
-        foreach ($array as $a) {
-            $conditions['OR'][] = array('LOWER(name) LIKE' => strtolower($a));
-        }
-        $params = array(
-                'recursive' => 1,
-                'contain' => 'AttributeTag',
-                'conditions' => $conditions
-        );
-        $result = $this->find('all', $params);
-        foreach ($result as $tag) {
-            foreach ($tag['AttributeTag'] as $attributeTag) {
-                $ids[] = $attributeTag['attribute_id'];
-            }
-        }
-        return $ids;
-    }
-
-    public function captureTag($tag, $user, $force=false)
+    /**
+     * @param array $tag
+     * @param array $user
+     * @param bool $force
+     * @return false|int
+     * @throws Exception
+     */
+    public function captureTag(array $tag, array $user, $force=false)
     {
         $existingTag = $this->find('first', array(
-                'recursive' => -1,
-                'conditions' => array('LOWER(name)' => strtolower($tag['name']))
+            'recursive' => -1,
+            'conditions' => array('LOWER(name)' => mb_strtolower($tag['name'])),
+            'fields' => ['id', 'org_id', 'user_id'],
+            'callbacks' => false,
         ));
         if (empty($existingTag)) {
             if ($force || $user['Role']['perm_tag_editor']) {
                 $this->create();
-                if (!isset($tag['colour']) || empty($tag['colour'])) {
+                if (empty($tag['colour'])) {
                     $tag['colour'] = $this->random_color();
                 }
                 $tag = array(
-                        'name' => $tag['name'],
-                        'colour' => $tag['colour'],
-                        'exportable' => isset($tag['exportable']) ? $tag['exportable'] : 1,
-                        'org_id' => 0,
-                        'user_id' => 0,
-                        'hide_tag' => Configure::read('MISP.incoming_tags_disabled_by_default') ? 1 : 0
+                    'name' => $tag['name'],
+                    'colour' => $tag['colour'],
+                    'exportable' => isset($tag['exportable']) ? $tag['exportable'] : 1,
+                    'local_only' => $tag['local_only'] ?? 0,
+                    'org_id' => 0,
+                    'user_id' => 0,
+                    'hide_tag' => Configure::read('MISP.incoming_tags_disabled_by_default') ? 1 : 0
                 );
                 $this->save($tag);
                 return $this->id;
             } else {
                 return false;
             }
-        } else {
-            if (
-                !$user['Role']['perm_site_admin'] &&
+        }
+        if (
+            !$user['Role']['perm_site_admin'] &&
+            (
                 (
-                    (
-                        $existingTag['Tag']['org_id'] != 0 &&
-                        $existingTag['Tag']['org_id'] != $user['org_id']
-                    ) ||
-                    (
-                        $existingTag['Tag']['user_id'] != 0 &&
-                        $existingTag['Tag']['user_id'] != $user['id']
-                    )
+                    $existingTag['Tag']['org_id'] != 0 &&
+                    $existingTag['Tag']['org_id'] != $user['org_id']
+                ) ||
+                (
+                    $existingTag['Tag']['user_id'] != 0 &&
+                    $existingTag['Tag']['user_id'] != $user['id']
                 )
-            ) {
-                return false;
-            }
+            )
+        ) {
+            return false;
         }
         return $existingTag['Tag']['id'];
-    }
-
-    // find all tags that belong to a given eventId
-    public function findEventTags($eventId)
-    {
-        $tags = array();
-        $params = array(
-                'recursive' => 1,
-                'contain' => 'EventTag',
-        );
-        $result = $this->find('all', $params);
-        foreach ($result as $tag) {
-            foreach ($tag['EventTag'] as $eventTag) {
-                if ($eventTag['event_id'] == $eventId) {
-                    $tags[] = $tag['Tag'];
-                }
-            }
-        }
-        return $tags;
     }
 
     public function random_color()
@@ -406,6 +356,13 @@ class Tag extends AppModel
         return $colour;
     }
 
+    /**
+     * @param string $name
+     * @param string|false $colour
+     * @param null $numerical_value
+     * @return int|false Created tag ID or false on error
+     * @throws Exception
+     */
     public function quickAdd($name, $colour = false, $numerical_value = null)
     {
         $this->create();
@@ -415,19 +372,26 @@ class Tag extends AppModel
         $data = array(
             'name' => $name,
             'colour' => $colour,
-            'exportable' => 1
+            'exportable' => 1,
         );
-        if (!is_null($numerical_value)) {
+        if ($numerical_value !== null) {
             $data['numerical_value'] = $numerical_value;
         }
-        return ($this->save($data));
+        if ($this->save(['Tag' => $data])) {
+            return $this->id;
+        } else {
+            return false;
+        }
     }
 
-    public function quickEdit($tag, $name, $colour, $hide = false, $numerical_value = null)
+    public function quickEdit($tag, $name, $colour, $hide = false, $numerical_value = null, $local_only = -1)
     {
-        if ($tag['Tag']['colour'] !== $colour || $tag['Tag']['name'] !== $name || $hide !== false || $tag['Tag']['numerical_value'] !== $numerical_value) {
+        if ($tag['Tag']['colour'] !== $colour || $tag['Tag']['name'] !== $name || $hide !== false || $tag['Tag']['numerical_value'] !== $numerical_value || ($tag['Tag']['local_only'] !== $local_only && $local_only !== -1)) {
             $tag['Tag']['name'] = $name;
             $tag['Tag']['colour'] = $colour;
+            if ($tag['Tag']['local_only'] !== -1) {
+                $tag['Tag']['local_only'] = $local_only;
+            }
             if ($hide !== false) {
                 $tag['Tag']['hide_tag'] = $hide;
             }
@@ -444,18 +408,24 @@ class Tag extends AppModel
         foreach ($tags as $k => $v) {
             $tags[$k]['Tag']['hide_tag'] = 1;
         }
-        return ($this->saveAll($tags));
+        return $this->saveAll($tags);
     }
 
     /**
-    * Recover user_id from the session and override numerical_values from userSetting
-    */
-    public function checkForOverride($tags)
+     * Recover user_id from the session and override numerical_values from userSetting.
+     *
+     * @param array $tags
+     * @return array
+     */
+    private function checkForOverride($tags)
     {
         $userId = Configure::read('CurrentUserId');
         if ($this->tagOverrides === false && $userId > 0) {
             $this->UserSetting = ClassRegistry::init('UserSetting');
             $this->tagOverrides = $this->UserSetting->getTagNumericalValueOverride($userId);
+        }
+        if (empty($this->tagOverrides)) {
+            return $tags;
         }
         foreach ($tags as $k => $tag) {
             if (isset($tag['Tag']['name'])) {
@@ -534,6 +504,91 @@ class Tag extends AppModel
         return $events;
     }
 
+    /**
+     * @return array
+     */
+    public function duplicateTags()
+    {
+        $tags = $this->find('list', [
+            'fields' => ['id', 'name'],
+            'order' => ['id'],
+        ]);
+        $duplicates = [];
+        $tagsByNormalizedName = [];
+        foreach ($tags as $tagId => $tagName) {
+            $tagId = (int)$tagId;
+            $normalizedName = mb_strtolower(trim($tagName));
+            if (isset($tagsByNormalizedName[$normalizedName])) {
+                $duplicates[$tagId] = $tagsByNormalizedName[$normalizedName];
+            } else {
+                $tagsByNormalizedName[$normalizedName] = $tagId;
+            }
+        }
+        $output = [];
+        foreach ($duplicates as $sourceId => $destinationId) {
+            $output[] = [
+                'source_id' => $sourceId,
+                'source_name' => $tags[$sourceId],
+                'destination_id' => $destinationId,
+                'destination_name' => $tags[$destinationId],
+            ];
+        }
+        return $output;
+    }
+
+    /**
+     * Merge tag $source into $destination. Destination tag will be deleted.
+     * @param int|string $source Tag name or tag ID
+     * @param int|string $destination Tag name or tag ID
+     * @throws Exception
+     */
+    public function mergeTag($source, $destination)
+    {
+        $sourceConditions = is_numeric($source) ? ['Tag.id' => $source] : ['Tag.name' => $source];
+        $destinationConditions = is_numeric($destination) ? ['Tag.id' => $destination] : ['Tag.name' => $destination];
+
+        $sourceTag = $this->find('first', [
+            'conditions' => $sourceConditions,
+            'recursive' => -1,
+            'fields' => ['Tag.id', 'Tag.name'],
+        ]);
+        if (empty($sourceTag)) {
+            throw new Exception("Tag `$source` not found.");
+        }
+
+        $destinationTag = $this->find('first', [
+            'conditions' => $destinationConditions,
+            'recursive' => -1,
+            'fields' => ['Tag.id', 'Tag.name'],
+        ]);
+        if (empty($destinationTag)) {
+            throw new Exception("Tag `$destination` not found.");
+        }
+
+        if ($sourceTag['Tag']['id'] === $destinationTag['Tag']['id']) {
+            throw new Exception("Source and destination tags are same.");
+        }
+
+        $this->AttributeTag->updateAll(['tag_id' => $destinationTag['Tag']['id']], ['tag_id' => $sourceTag['Tag']['id']]);
+        $changedTags = $this->AttributeTag->getAffectedRows();
+        $this->EventTag->updateAll(['tag_id' => $destinationTag['Tag']['id']], ['tag_id' => $sourceTag['Tag']['id']]);
+        $changedTags += $this->EventTag->getAffectedRows();
+
+        $this->delete($sourceTag['Tag']['id']);
+
+        return [
+            'source_tag' => $sourceTag,
+            'destination_tag' => $destinationTag,
+            'changed' => $changedTags,
+        ];
+    }
+
+    /**
+     * @deprecated Not used anywhere
+     * @param $user
+     * @return string
+     * @throws Exception
+     */
     public function fixMitreTags($user)
     {
         $full_print_buffer = '';

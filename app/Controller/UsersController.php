@@ -45,7 +45,7 @@ class UsersController extends AppController
 
     public function view($id = null)
     {
-        if ("me" == $id) {
+        if ("me" === $id) {
             $id = $this->Auth->user('id');
         }
         if (!$this->_isSiteAdmin() && $this->Auth->user('id') != $id) {
@@ -72,13 +72,6 @@ class UsersController extends AppController
             $user['User']['fingerprint'] = !empty($pgpDetails[4]) ? $pgpDetails[4] : 'N/A';
         }
         if ($this->_isRest()) {
-            unset($user['User']['server_id']);
-            $user['User']['password'] = '*****';
-            $temp = array();
-            foreach ($user['UserSetting'] as $k => $v) {
-                $temp[$v['setting']] = $v['value'];
-            }
-            $user['UserSetting'] = $temp;
             return $this->RestResponse->viewData($this->__massageUserObject($user), $this->response->type());
         } else {
             $this->set('user', $user);
@@ -86,13 +79,19 @@ class UsersController extends AppController
         }
     }
 
-    private function __massageUserObject($user)
+    /**
+     * @param array $user
+     * @return array
+     */
+    private function __massageUserObject(array $user)
     {
+        $user['UserSetting'] = array_column($user['UserSetting'], 'value', 'setting');
         unset($user['User']['server_id']);
         if (!empty(Configure::read('Security.advanced_authkeys'))) {
             unset($user['User']['authkey']);
         }
         $user['User']['password'] = '*****';
+        $temp = [];
         $objectsToInclude = array('User', 'Role', 'UserSetting', 'Organisation');
         foreach ($objectsToInclude as $objectToInclude) {
             if (isset($user[$objectToInclude])) {
@@ -714,7 +713,7 @@ class UsersController extends AppController
                             $fail = false;
                         }
                     }
-                    if ($abortPost) {
+                    if ($fail) {
                         $this->Flash->error(__('Invalid e-mail domain. Your user is restricted to creating users for the following domain(s): ') . implode(', ', $organisation['Organisation']['restricted_to_domain']));
                     }
                 }
@@ -742,7 +741,7 @@ class UsersController extends AppController
                                 $notification_message .= ' ' . __('User notification of new credentials could not be send.');
                             }
                         }
-                        if (!empty(Configure::read('Security.advanced_authkeys'))) {
+                        if (!empty(Configure::read('Security.advanced_authkeys')) && $this->_isRest()) {
                             $this->loadModel('AuthKey');
                             $newKey = $this->AuthKey->createnewkey($this->User->id);
                         }
@@ -1211,8 +1210,7 @@ class UsersController extends AppController
                 }
             }
             // populate the DB with the first role (site admin) if it's empty
-            $this->loadModel('Role');
-            if ($this->Role->find('count') == 0) {
+            if (!$this->User->Role->hasAny()) {
                 $siteAdmin = array('Role' => array(
                     'id' => 1,
                     'name' => 'Site Admin',
@@ -1231,14 +1229,14 @@ class UsersController extends AppController
                     'perm_template' => 1,
                     'perm_tagger' => 1,
                 ));
-                $this->Role->save($siteAdmin);
+                $this->User->Role->save($siteAdmin);
                 // PostgreSQL: update value of auto incremented serial primary key after setting the column by force
-                if ($dataSource == 'Database/Postgres') {
+                if ($dataSource === 'Database/Postgres') {
                     $sql = "SELECT setval('roles_id_seq', (SELECT MAX(id) FROM roles));";
-                    $this->Role->query($sql);
+                    $this->User->Role->query($sql);
                 }
             }
-            if ($this->User->Organisation->find('count', array('conditions' => array('Organisation.local' => true))) == 0) {
+            if (!$this->User->Organisation->hasAny(array('Organisation.local' => true))) {
                 $this->User->runUpdates();
                 $date = date('Y-m-d H:i:s');
                 $org = array('Organisation' => array(
@@ -1254,23 +1252,25 @@ class UsersController extends AppController
                 ));
                 $this->User->Organisation->save($org);
                 // PostgreSQL: update value of auto incremented serial primary key after setting the column by force
-                if ($dataSource == 'Database/Postgres') {
+                if ($dataSource === 'Database/Postgres') {
                     $sql = "SELECT setval('organisations_id_seq', (SELECT MAX(id) FROM organisations));";
                     $this->User->Organisation->query($sql);
                 }
                 $org_id = $this->User->Organisation->id;
-            } else {
-                $hostOrg = $this->User->Organisation->find('first', array('conditions' => array('Organisation.name' => Configure::read('MISP.org'), 'Organisation.local' => true), 'recursive' => -1));
-                if (!empty($hostOrg)) {
-                    $org_id = $hostOrg['Organisation']['id'];
-                } else {
-                    $firstOrg = $this->User->Organisation->find('first', array('conditions' => array('Organisation.local' => true), 'order' => 'Organisation.id ASC'));
-                    $org_id = $firstOrg['Organisation']['id'];
-                }
             }
 
             // populate the DB with the first user if it's empty
-            if ($this->User->find('count') == 0) {
+            if (!$this->User->hasAny()) {
+                if (!isset($org_id)) {
+                    $hostOrg = $this->User->Organisation->find('first', array('conditions' => array('Organisation.name' => Configure::read('MISP.org'), 'Organisation.local' => true), 'recursive' => -1));
+                    if (!empty($hostOrg)) {
+                        $org_id = $hostOrg['Organisation']['id'];
+                    } else {
+                        $firstOrg = $this->User->Organisation->find('first', array('conditions' => array('Organisation.local' => true), 'order' => 'Organisation.id ASC'));
+                        $org_id = $firstOrg['Organisation']['id'];
+                    }
+                }
+
                 $this->User->runUpdates();
                 $this->User->createInitialUser($org_id);
             }
@@ -1304,6 +1304,11 @@ class UsersController extends AppController
     {
         // Events list
         $url = $this->Session->consume('pre_login_requested_url');
+        if (!empty(Configure::read('MISP.forceHTTPSforPreLoginRequestedURL')) && !empty($url)) {
+            if (substr($url, 0, 7) === "http://") {
+                $url = sprintf('https://%s', substr($url, 7));
+            }
+        }
         if (empty($url)) {
             $homepage = $this->User->UserSetting->getValueForUser($this->Auth->user('id'), 'homepage');
             if (!empty($homepage)) {
@@ -1788,7 +1793,7 @@ class UsersController extends AppController
             // Fetch user that contains also PGP or S/MIME keys for e-mail encryption
             $userForSendMail = $this->User->getUserById($user_id);
             $body = str_replace('\n', PHP_EOL, $body);
-            $result = $this->User->sendEmail($userForSendMail, $body, false, "[MISP " . Configure::read('MISP.org') . "] Email OTP");
+            $result = $this->User->sendEmail($userForSendMail, $body, false, "[" . Configure::read('MISP.org') . " MISP] Email OTP");
 
             if ($result) {
                 $this->Flash->success(__("An email containing a OTP has been sent."));
@@ -1819,41 +1824,49 @@ class UsersController extends AppController
     {
         @session_write_close(); // loading this page can take long time, so we can close session
 
-        $this->set('page', $page);
-        $pages = array('data' => __('Usage data'),
-                       'orgs' => __('Organisations'),
-                       'users' => __('User and Organisation statistics'),
-                       'tags' => __('Tags'),
-                       'attributehistogram' => __('Attribute histogram'),
-                       'sightings' => __('Sightings toplists'),
-                       'galaxyMatrix' => __('Galaxy Matrix'));
-        if (!$this->_isSiteAdmin() && !empty(Configure::read('Security.hide_organisation_index_from_users'))) {
-            unset($pages['orgs']);
+        if (!$this->_isRest()) {
+            $pages = [
+                'data' => __('Usage data'),
+                'orgs' => __('Organisations'),
+                'users' => __('User and Organisation statistics'),
+                'tags' => __('Tags'),
+                'attributehistogram' => __('Attribute histogram'),
+                'sightings' => __('Sightings toplists'),
+                'galaxyMatrix' => __('Galaxy Matrix')
+            ];
+            if (!$this->_isSiteAdmin() && !empty(Configure::read('Security.hide_organisation_index_from_users'))) {
+                unset($pages['orgs']);
+            }
+
+            $this->set('page', $page);
+            $this->set('pages', $pages);
         }
-        $this->set('pages', $pages);
-        $result = array();
-        if ($page == 'data') {
+
+        if ($page === 'data') {
             $result = $this->__statisticsData($this->params['named']);
-        } elseif ($page == 'orgs') {
+        } elseif ($page === 'orgs') {
             if (!$this->_isSiteAdmin() && !empty(Configure::read('Security.hide_organisation_index_from_users'))) {
                 throw new MethodNotAllowedException('This feature is currently disabled.');
             }
             $result = $this->__statisticsOrgs($this->params['named']);
-        } elseif ($page == 'users') {
+        } elseif ($page === 'users') {
             $result = $this->__statisticsUsers($this->params['named']);
-        } elseif ($page == 'tags') {
+        } elseif ($page === 'tags') {
             $result = $this->__statisticsTags($this->params['named']);
-        } elseif ($page == 'attributehistogram') {
+        } elseif ($page === 'attributehistogram') {
             if ($this->_isRest()) {
                 return $this->histogram($selected = null);
             } else {
                 $this->render('statistics_histogram');
             }
-        } elseif ($page == 'sightings') {
+        } elseif ($page === 'sightings') {
             $result = $this->__statisticsSightings($this->params['named']);
-        } elseif ($page == 'galaxyMatrix') {
+        } elseif ($page === 'galaxyMatrix') {
             $result = $this->__statisticsGalaxyMatrix($this->params['named']);
+        } else {
+            throw new NotFoundException("Invalid page");
         }
+
         if ($this->_isRest()) {
             return $result;
         }
@@ -1865,7 +1878,8 @@ class UsersController extends AppController
         $params = array(
             'fields' => array('id', 'name'),
             'recursive' => -1,
-            'conditions' => array()
+            'conditions' => array(),
+            'order' => ['name'],
         );
         if (!$this->_isSiteAdmin() && !empty(Configure::read('Security.hide_organisation_index_from_users'))) {
             $params['conditions'] = array('Organisation.id' => $this->Auth->user('org_id'));
@@ -1935,37 +1949,37 @@ class UsersController extends AppController
     private function __statisticsSightings($params = array())
     {
         $this->loadModel('Sighting');
-        $conditions = array('Sighting.org_id' => $this->Auth->user('org_id'));
+        $conditions = ['Sighting.org_id' => $this->Auth->user('org_id')];
         if (isset($params['timestamp'])) {
             $conditions['Sighting.date_sighting >'] = $params['timestamp'];
         }
         $sightings = $this->Sighting->find('all', array(
             'conditions' => $conditions,
-            'fields' => array('Sighting.date_sighting', 'Sighting.type', 'Sighting.source', 'Sighting.event_id')
+            'fields' => ['Sighting.type', 'Sighting.source', 'Sighting.event_id'],
         ));
         $data = array();
         $toplist = array();
         $eventids = array();
-        foreach ($sightings as $k => $v) {
+        foreach ($sightings as $v) {
             if ($v['Sighting']['source'] == '') {
                 $v['Sighting']['source'] = 'Undefined';
             }
-            $v['Sighting']['type'] = array('sighting', 'false-positive', 'expiration')[$v['Sighting']['type']];
-            if (isset($data[$v['Sighting']['source']][$v['Sighting']['type']])) {
-                $data[$v['Sighting']['source']][$v['Sighting']['type']]++;
+            $type = array('sighting', 'false-positive', 'expiration')[$v['Sighting']['type']];
+            if (isset($data[$v['Sighting']['source']][$type])) {
+                $data[$v['Sighting']['source']][$type]++;
             } else {
-                $data[$v['Sighting']['source']][$v['Sighting']['type']] = 1;
+                $data[$v['Sighting']['source']][$type] = 1;
             }
             if (!isset($toplist[$v['Sighting']['source']])) {
                 $toplist[$v['Sighting']['source']] = 1;
             } else {
                 $toplist[$v['Sighting']['source']]++;
             }
-            if (!isset($eventids[$v['Sighting']['source']][$v['Sighting']['type']])) {
-                $eventids[$v['Sighting']['source']][$v['Sighting']['type']] = array();
+            if (!isset($eventids[$v['Sighting']['source']][$type])) {
+                $eventids[$v['Sighting']['source']][$type] = [];
             }
-            if (!in_array($v['Sighting']['event_id'], $eventids[$v['Sighting']['source']][$v['Sighting']['type']])) {
-                $eventids[$v['Sighting']['source']][$v['Sighting']['type']][] = $v['Sighting']['event_id'];
+            if (!in_array($v['Sighting']['event_id'], $eventids[$v['Sighting']['source']][$type])) {
+                $eventids[$v['Sighting']['source']][$v['Sighting']['type']][] = $type;
             }
         }
         arsort($toplist);
@@ -2315,9 +2329,6 @@ class UsersController extends AppController
 
     public function verifyGPG($full = false)
     {
-        if (!self::_isSiteAdmin()) {
-            throw new NotFoundException();
-        }
         $user_results = $this->User->verifyGPG($full);
         $this->set('users', $user_results);
     }
