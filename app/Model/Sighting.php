@@ -2,6 +2,7 @@
 App::uses('AppModel', 'Model');
 App::uses('TmpFileTool', 'Tools');
 App::uses('ServerSyncTool', 'Tools');
+App::uses('ProcessTool', 'Tools');
 
 /**
  * @property Attribute $Attribute
@@ -744,7 +745,7 @@ class Sighting extends AppModel
         $tempFile->close();
         $scriptFile = APP . "files" . DS . "scripts" . DS . "stixsighting2misp.py";
         // Execute the python script and point it to the temporary filename
-        $result = shell_exec($this->getPythonVersion() . ' ' . $scriptFile . ' ' . $randomFileName);
+        $result = ProcessTool::execute([ProcessTool::pythonBin(), $scriptFile, $randomFileName]);
         // The result of the script will be a returned JSON object with 2 variables: success (boolean) and message
         // If success = 1 then the temporary output file was successfully written, otherwise an error message is passed along
         $result = json_decode($result, true);
@@ -1104,6 +1105,90 @@ class Sighting extends AppModel
         } else {
             return 0;
         }
+    }
+
+    /**
+     * Push sightings to remote server.
+     * @param array $user
+     * @param ServerSyncTool $serverSync
+     * @return array
+     * @throws Exception
+     */
+    public function pushSightings(array $user, ServerSyncTool $serverSync)
+    {
+        $server = $serverSync->server();
+
+        if (!$serverSync->server()['Server']['push_sightings']) {
+            return [];
+        }
+        $this->Server = ClassRegistry::init('Server');
+
+        try {
+            $eventArray = $this->Server->getEventIndexFromServer($serverSync);
+        } catch (Exception $e) {
+            $this->logException("Could not fetch event IDs from server {$server['Server']['name']}", $e);
+            return [];
+        }
+
+        // Fetch local events that has sightings
+        $localEvents = $this->Event->find('list', [
+            'fields' => ['Event.uuid', 'Event.sighting_timestamp'],
+            'conditions' => [
+                'Event.uuid' => array_column($eventArray, 'uuid'),
+                'Event.sighting_timestamp >' => 0,
+            ],
+        ]);
+
+        // Filter just local events that has sighting_timestamp newer than remote event
+        $eventUuids = [];
+        foreach ($eventArray as $event) {
+            if (isset($localEvents[$event['uuid']]) && $localEvents[$event['uuid']] > $event['sighting_timestamp']) {
+                $eventUuids[] = $event['uuid'];
+            }
+        }
+        unset($localEvents, $eventArray);
+
+        $fakeSyncUser = [
+            'org_id' => $server['Server']['remote_org_id'],
+            'Role' => [
+                'perm_site_admin' => 0,
+            ],
+        ];
+
+        $successes = [];
+        // now process the $eventUuids to push each of the events sequentially
+        // check each event and push sightings when needed
+        foreach ($eventUuids as $eventUuid) {
+            $event = $this->Event->fetchEvent($user, ['event_uuid' => $eventUuid, 'metadata' => true]);
+            if (empty($event)) {
+                continue;
+            }
+            $event = $event[0];
+
+            if (empty($this->Server->eventFilterPushableServers($event, [$server]))) {
+                continue;
+            }
+            if (!$this->Event->checkDistributionForPush($event, $server)) {
+                continue;
+            }
+
+            // Process sightings in batch to keep memory requirements low
+            foreach ($this->fetchUuidsForEventToPush($event, $fakeSyncUser) as $batch) {
+                // Filter out sightings that already exists on remote server
+                $existingSightings = $serverSync->filterSightingUuidsForPush($event, $batch);
+                $newSightings = array_diff($batch, $existingSightings);
+                if (empty($newSightings)) {
+                    continue;
+                }
+
+                $conditions = ['Sighting.uuid' => $newSightings];
+                $sightings = $this->attachToEvent($event, $fakeSyncUser, null, $conditions, true);
+                $serverSync->uploadSightings($sightings, $event['Event']['uuid']);
+            }
+
+            $successes[] = 'Sightings for event ' .  $event['Event']['id'];
+        }
+        return $successes;
     }
 
     /**

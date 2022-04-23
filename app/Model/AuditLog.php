@@ -180,7 +180,7 @@ class AuditLog extends AppModel
         if (!isset($auditLog['ip']) && $this->logClientIp) {
             $ipHeader = Configure::read('MISP.log_client_ip_header') ?: 'REMOTE_ADDR';
             if (isset($_SERVER[$ipHeader])) {
-                $auditLog['ip'] = inet_pton($_SERVER[$ipHeader]); // convert to binary form
+                $auditLog['ip'] = $_SERVER[$ipHeader];
             }
         }
 
@@ -216,8 +216,12 @@ class AuditLog extends AppModel
 
         $this->logData($this->data);
 
+        if (isset($auditLog['ip'])) {
+            $auditLog['ip'] = inet_pton($auditLog['ip']); // convert to binary form to save into database
+        }
+
         if (isset($auditLog['change'])) {
-            $change = json_encode($auditLog['change'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $change = JsonTool::encode($auditLog['change']);
             if ($this->compressionEnabled && strlen($change) >= self::BROTLI_MIN_LENGTH) {
                 $change = self::BROTLI_HEADER . brotli_compress($change, 4, BROTLI_TEXT);
             }
@@ -268,7 +272,7 @@ class AuditLog extends AppModel
             if ($title) {
                 $entry .= " -- $title";
             }
-            $this->syslog->write('info', $entry);
+            $this->syslog->write(LOG_INFO, $entry);
         }
         return true;
     }
@@ -314,6 +318,9 @@ class AuditLog extends AppModel
         return $this->user;
     }
 
+    /**
+     * @throws Exception
+     */
     public function insert(array $data)
     {
         try {
@@ -321,7 +328,7 @@ class AuditLog extends AppModel
         } catch (Exception $e) {
             return; // Table is missing when updating, so this is intentional
         }
-        if ($this->save($data) === false) {
+        if ($this->save(['AuditLog' => $data], ['atomic' => false]) === false) {
             throw new Exception($this->validationErrors);
         }
     }

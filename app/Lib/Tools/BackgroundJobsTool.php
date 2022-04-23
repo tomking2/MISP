@@ -58,7 +58,8 @@ class BackgroundJobsTool
         EMAIL_QUEUE = 'email',
         CACHE_QUEUE = 'cache',
         PRIO_QUEUE = 'prio',
-        UPDATE_QUEUE = 'update';
+        UPDATE_QUEUE = 'update',
+        SCHEDULER_QUEUE = 'scheduler';
 
     const VALID_QUEUES = [
         self::DEFAULT_QUEUE,
@@ -66,6 +67,7 @@ class BackgroundJobsTool
         self::CACHE_QUEUE,
         self::PRIO_QUEUE,
         self::UPDATE_QUEUE,
+        self::SCHEDULER_QUEUE,
     ];
 
     const
@@ -92,7 +94,7 @@ class BackgroundJobsTool
 
     /**
      * Initialize
-     * 
+     *
      * Settings should have the following format:
      *      [
      *           'enabled' => true,
@@ -109,6 +111,7 @@ class BackgroundJobsTool
      *      ]
      *
      * @param array $settings
+     * @throws Exception
      */
     public function __construct(array $settings)
     {
@@ -231,8 +234,6 @@ class BackgroundJobsTool
      * Get the job status.
      *
      * @param string $jobId Background Job Id.
-     * 
-     * 
      */
     public function getJob(string $jobId)
     {
@@ -278,9 +279,14 @@ class BackgroundJobsTool
      */
     public function getWorkers(): array
     {
-        $workers = [];
-        $procs = $this->getSupervisor()->getAllProcesses();
+        try {
+            $procs = $this->getSupervisor()->getAllProcesses();
+        } catch (\Exception $exception) {
+            CakeLog::error("An error occured when getting the workers statuses via Supervisor API: {$exception->getMessage()}");
+            return [];
+        }
 
+        $workers = [];
         foreach ($procs as $proc) {
             if ($proc->offsetGet('group') === self::MISP_WORKERS_PROCESS_GROUP) {
                 if ($proc->offsetGet('pid') > 0) {
@@ -336,27 +342,6 @@ class BackgroundJobsTool
     }
 
     /**
-     * Run job
-     *
-     * @param BackgroundJob $job
-     * 
-     * @return integer Process return code.
-     */
-    public function run(BackgroundJob $job): int
-    {
-        $job->setStatus(BackgroundJob::STATUS_RUNNING);
-        CakeLog::info("[JOB ID: {$job->id()}] - started.");
-
-        $this->update($job);
-
-        $job = $job->run();
-
-        $this->update($job);
-
-        return $job->returnCode();
-    }
-
-    /**
      * Start worker by name
      *
      * @param string $name
@@ -380,9 +365,10 @@ class BackgroundJobsTool
     /**
      * Start worker by queue
      *
-     * @param string $name
+     * @param string $queue Queue name
      * @param boolean $waitForRestart
      * @return boolean
+     * @throws Exception
      */
     public function startWorkerByQueue(string $queue, bool $waitForRestart = false): bool
     {
@@ -415,6 +401,7 @@ class BackgroundJobsTool
      * @param string|int $id
      * @param boolean $waitForRestart
      * @return boolean
+     * @throws Exception
      */
     public function stopWorker($id, bool $waitForRestart = false): bool
     {
@@ -442,6 +429,7 @@ class BackgroundJobsTool
      *
      * @param boolean $waitForRestart
      * @return void
+     * @throws Exception
      */
     public function restartWorkers(bool $waitForRestart = false)
     {
@@ -454,6 +442,7 @@ class BackgroundJobsTool
      *
      * @param boolean $waitForRestart
      * @return void
+     * @throws Exception
      */
     public function restartDeadWorkers(bool $waitForRestart = false)
     {
@@ -492,7 +481,7 @@ class BackgroundJobsTool
         }
 
         try {
-            $supervisorStatus = $this->getSupervisor()->getState()['statecode'] === \Supervisor\Supervisor::RUNNING;
+            $supervisorStatus = $this->getSupervisorStatus();
         } catch (Exception $exception) {
             CakeLog::error("SimpleBackgroundJobs Supervisor error: {$exception->getMessage()}");
             $supervisorStatus = false;
@@ -510,10 +499,21 @@ class BackgroundJobsTool
     }
 
     /**
-     * Validate queue
+     * Return true if Supervisor process is running.
      *
      * @return boolean
-     * @throws InvalidArgumentException
+     * @throws Exception
+     */
+    public function getSupervisorStatus(): bool
+    {
+        return $this->getSupervisor()->getState()['statecode'] === \Supervisor\Supervisor::RUNNING;
+    }
+
+    /**
+     * Validate queue
+     *
+     * @param string $queue
+     * @return boolean
      */
     private function validateQueue(string $queue): bool
     {
@@ -533,8 +533,8 @@ class BackgroundJobsTool
     /**
      * Validate command
      *
+     * @param string $command
      * @return boolean
-     * @throws InvalidArgumentException
      */
     private function validateCommand(string $command): bool
     {
@@ -573,13 +573,21 @@ class BackgroundJobsTool
 
     /**
      * @return Redis
+     * @throws Exception
      */
     private function createRedisConnection(): Redis
     {
+        if (!class_exists('Redis')) {
+            throw new Exception("Class Redis doesn't exists. Please install redis extension for PHP.");
+        }
+
         $redis = new Redis();
         $redis->connect($this->settings['redis_host'], $this->settings['redis_port']);
         $redis->setOption(Redis::OPT_SERIALIZER, Redis::SERIALIZER_JSON);
         $redis->setOption(Redis::OPT_PREFIX, $this->settings['redis_namespace'] . ':');
+        if (isset($this->settings['redis_read_timeout'])) {
+            $redis->setOption(Redis::OPT_READ_TIMEOUT, $this->settings['redis_read_timeout']);
+        }
         $redisPassword = $this->settings['redis_password'];
 
         if (!empty($redisPassword)) {
@@ -592,6 +600,7 @@ class BackgroundJobsTool
 
     /**
      * @return \Supervisor\Supervisor
+     * @throws Exception
      */
     private function getSupervisor()
     {
@@ -603,6 +612,7 @@ class BackgroundJobsTool
 
     /**
      * @return \Supervisor\Supervisor
+     * @throws Exception
      */
     private function createSupervisorConnection(): \Supervisor\Supervisor
     {
@@ -616,10 +626,19 @@ class BackgroundJobsTool
             ];
         }
 
+        $host = null;
+        if (substr($this->settings['supervisor_host'], 0, 5) === 'unix:') {
+            if (!defined('CURLOPT_UNIX_SOCKET_PATH')) {
+                throw new Exception("For unix socket connection, cURL is required.");
+            }
+            $httpOptions['curl'][CURLOPT_UNIX_SOCKET_PATH] = substr($this->settings['supervisor_host'], 5);
+            $host = 'localhost';
+        }
+
         $client = new \fXmlRpc\Client(
             sprintf(
                 'http://%s:%s/RPC2',
-                $this->settings['supervisor_host'],
+                $host ?: $this->settings['supervisor_host'],
                 $this->settings['supervisor_port']
             ),
             new \fXmlRpc\Transport\HttpAdapterTransport(
@@ -627,6 +646,12 @@ class BackgroundJobsTool
                 new \GuzzleHttp\Client($httpOptions)
             )
         );
+
+        if (class_exists('Supervisor\Connector\XmlRpc')) {
+            // for compatibility with older versions of supervisor
+            $connector = new \Supervisor\Connector\XmlRpc($client);
+            return new \Supervisor\Supervisor($connector);
+        }
 
         return new \Supervisor\Supervisor($client);
     }

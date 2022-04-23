@@ -2,10 +2,10 @@
     <tr>
         <?php if ($isSiteAdmin): ?>
             <th>
-                <input class="select_all select" type="checkbox" title="<?php echo __('Select all');?>" role="button" tabindex="0" aria-label="<?php echo __('Select all events on current page');?>" onClick="toggleAllCheckboxes();" />&nbsp;
+                <input class="select_all select" type="checkbox" title="<?php echo __('Select all');?>" role="button" tabindex="0" aria-label="<?php echo __('Select all events on current page');?>" onClick="toggleAllCheckboxes();">
             </th>
         <?php else: ?>
-            <th style="padding-left:0px;padding-right:0px;">&nbsp;</th>
+            <th style="padding-left:0;padding-right:0;">&nbsp;</th>
         <?php endif;?>
         <th class="filter">
             <?php echo $this->Paginator->sort('published');?>
@@ -13,19 +13,19 @@
         <?php
             if (Configure::read('MISP.showorgalternate') && Configure::read('MISP.showorg')):
         ?>
-            <th class="filter"><?php echo $this->Paginator->sort('Org', 'Source org'); ?></th>
-            <th class="filter"><?php echo $this->Paginator->sort('Org', 'Member org'); ?></th>
+            <th class="filter"><?php echo $this->Paginator->sort('Orgc.name', __('Source org')); ?></th>
+            <th class="filter"><?php echo $this->Paginator->sort('Orgc.name', __('Member org')); ?></th>
         <?php
             elseif (Configure::read('MISP.showorg') || $isAdmin):
         ?>
-            <th class="filter"><?php echo $this->Paginator->sort('Org', __('Creator org')); ?></th>
+            <th class="filter"><?php echo $this->Paginator->sort('Orgc.name', __('Creator org')); ?></th>
         <?php
                 endif;
             $date = time();
             $day = 86400;
         ?>
 
-        <?php if (in_array('owner_org', $columns, true)): ?><th class="filter"><?= $this->Paginator->sort('owner org', __('Owner org')) ?></th><?php endif; ?>
+        <?php if (in_array('owner_org', $columns, true)): ?><th class="filter"><?= $this->Paginator->sort('Org.name', __('Owner org')) ?></th><?php endif; ?>
         <th><?= $this->Paginator->sort('id', __('ID'), ['direction' => 'desc']) ?></th>
         <?php if (in_array('clusters', $columns, true)): ?><th><?= __('Clusters') ?></th><?php endif; ?>
         <?php if (in_array('tags', $columns, true)): ?><th><?= __('Tags') ?></th><?php endif; ?>
@@ -37,6 +37,8 @@
         <?php if (in_array('discussion', $columns, true)): ?><th title="<?= __('Post Count') ?>"><?= __('#Posts') ?></th><?php endif; ?>
         <?php if (in_array('creator_user', $columns, true)): ?><th><?= $this->Paginator->sort('user_id', __('Creator user')) ?></th><?php endif; ?>
         <th class="filter"><?= $this->Paginator->sort('date', null, array('direction' => 'desc'));?></th>
+        <?php if (in_array('timestamp', $columns, true)): ?><th title="<?= __('Last modified at') ?>"><?= $this->Paginator->sort('timestamp', __('Last modified at')) ?></th><?php endif; ?>
+        <?php if (in_array('publish_timestamp', $columns, true)): ?><th title="<?= __('Last modified at') ?>"><?= $this->Paginator->sort('publish_timestamp', __('Published at')) ?></th><?php endif; ?>
         <th class="filter"><?= $this->Paginator->sort('info');?></th>
         <th title="<?= $eventDescriptions['distribution']['desc'];?>">
             <?= $this->Paginator->sort('distribution');?>
@@ -47,7 +49,7 @@
     <tr id="event_<?= $eventId ?>">
         <?php if ($isSiteAdmin || ($event['Event']['orgc_id'] == $me['org_id'])):?>
         <td style="width:10px;">
-            <input class="select" type="checkbox" data-id="<?= $eventId ?>" />
+            <input class="select" type="checkbox" data-id="<?= $eventId ?>" data-uuid="<?= h($event['Event']['uuid']) ?>" />
         </td>
         <?php else: ?>
         <td style="padding-left:0;padding-right:0;"></td>
@@ -67,8 +69,8 @@
             <?= $this->OrgImg->getOrgLogo($event['Org'], 24) ?>
         </td>
         <?php endif; ?>
-        <td style="width:30px;">
-            <a href="<?= $baseurl."/events/view/".$eventId ?>" class="dblclickActionElement threat-level-<?= strtolower(h($event['ThreatLevel']['name'])) ?>" title="<?= __('Threat level: %s', h($event['ThreatLevel']['name'])) ?>"><?= $eventId ?></a>
+        <td class="short">
+            <span><a href="<?= $baseurl."/events/view/".$eventId ?>" class="dblclickActionElement threat-level-<?= strtolower(h($event['ThreatLevel']['name'])) ?>" title="<?= __('Threat level: %s', h($event['ThreatLevel']['name'])) ?>"><?= $eventId ?></a> <?= !empty($event['Event']['protected']) ? sprintf('<i class="fas fa-lock" title="%s"></i>', __('Protected event')) : ''?></span>
         </td>
         <?php if (in_array('clusters', $columns, true)): ?>
         <td class="short">
@@ -167,6 +169,16 @@
         <td class="short dblclickElement">
             <?= $event['Event']['date'] ?>
         </td>
+        <?php if (in_array('timestamp', $columns, true)): ?>
+        <td class="short dblclickElement">
+            <?= $this->Time->time($event['Event']['timestamp']) ?>
+        </td>
+        <?php endif; ?>
+        <?php if (in_array('publish_timestamp', $columns, true)): ?>
+        <td class="short dblclickElement">
+            <?= $this->Time->time($event['Event']['publish_timestamp']) ?>
+        </td>
+        <?php endif; ?>
         <td class="dblclickElement">
             <?= nl2br(h($event['Event']['info']), false) ?>
         </td>
@@ -191,14 +203,14 @@
         <td class="short action-links">
             <?php
                 if (0 == $event['Event']['published'] && ($isSiteAdmin || ($isAclPublish && $event['Event']['orgc_id'] == $me['org_id']))) {
-                    echo $this->Form->postLink('', array('action' => 'alert', $eventId), array('class' => 'black fa fa-upload', 'title' => __('Publish Event'), 'aria-label' => __('Publish Event')), __('Are you sure this event is complete and everyone should be informed?'));
+                    echo sprintf('<a class="useCursorPointer fa fa-upload" title="%s" aria-label="%s" onclick="event.preventDefault();publishPopup(%s)"></a>', __('Publish Event'), __('Publish Event'), $eventId);
                 }
 
                 if ($isSiteAdmin || ($isAclModify && $event['Event']['user_id'] == $me['id']) || ($isAclModifyOrg && $event['Event']['orgc_id'] == $me['org_id'])):
             ?>
                     <a href="<?php echo $baseurl."/events/edit/".$eventId ?>" title="<?php echo __('Edit');?>" aria-label="<?php echo __('Edit');?>"><i class="black fa fa-edit"></i></a>
             <?php
-                    echo sprintf('<a class="useCursorPointer fa fa-trash" title="%s" aria-label="%s" onclick="deleteEvent(%s)"></a>', __('Delete'), __('Delete'), $eventId);
+                    echo sprintf('<a class="useCursorPointer fa fa-trash" title="%s" aria-label="%s" onclick="event.preventDefault();deleteEventPopup(%s)"></a>', __('Delete'), __('Delete'), $eventId);
                 endif;
             ?>
             <a href="<?php echo $baseurl."/events/view/".$eventId ?>" title="<?php echo __('View');?>" aria-label="<?php echo __('View');?>"><i class="fa black fa-eye"></i></a>
@@ -214,11 +226,10 @@
         }).click(function(e) {
             if ($(this).is(':checked')) {
                 if (e.shiftKey) {
-                    selectAllInbetween(lastSelected, this.id);
+                    selectAllInbetween(lastSelected, this);
                 }
-                lastSelected = this.id;
+                lastSelected = this;
             }
-            attributeListAnyAttributeCheckBoxesChecked();
         });
 
         $('.distributionNetworkToggle').each(function() {
@@ -227,15 +238,4 @@
             });
         });
     });
-
-    function deleteEvent(id) {
-        var message = "<?= __('Are you sure you want to delete #') ?>" + id + "?"
-        var url = '<?= $baseurl ?>/events/delete/' + id
-        if (confirm(message)) {
-            fetchFormDataAjax(url, function(formData) {
-                $('body').append($('<div id="temp" class="hidden"/>').html(formData));
-                $('#temp form').submit()
-            })
-        }
-    }
 </script>

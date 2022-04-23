@@ -3,6 +3,7 @@ App::uses('AppModel', 'Model');
 
 /**
  * @property EventTag $EventTag
+ * @property User $User
  * @property AttributeTag $AttributeTag
  * @property FavouriteTag $FavouriteTag
  * @property Organisation $Organisation
@@ -79,8 +80,8 @@ class Tag extends AppModel
         )
     );
 
-    public $reGalaxy = '/misp-galaxy:[^:="]+="[^:="]+/i';
-    public $reCustomGalaxy = '/misp-galaxy:[^:="]+="[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"/i';
+    const RE_GALAXY = '/misp-galaxy:[^:="]+="[^:="]+/i';
+    const RE_CUSTOM_GALAXY = '/misp-galaxy:[^:="]+="[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}"/i';
     private $tagOverrides = false;
 
     public function beforeValidate($options = array())
@@ -104,8 +105,8 @@ class Tag extends AppModel
         if (isset($tag['name']) && strlen($tag['name']) >= 255) {
             $tag['name'] = substr($tag['name'], 0, 255);
         }
-        $tag['is_galaxy'] = preg_match($this->reGalaxy, $tag['name']);
-        $tag['is_custom_galaxy'] = preg_match($this->reCustomGalaxy, $tag['name']);
+        $tag['is_galaxy'] = preg_match(self::RE_GALAXY, $tag['name']);
+        $tag['is_custom_galaxy'] = preg_match(self::RE_CUSTOM_GALAXY, $tag['name']);
         return true;
     }
 
@@ -312,7 +313,7 @@ class Tag extends AppModel
             if ($force || $user['Role']['perm_tag_editor']) {
                 $this->create();
                 if (empty($tag['colour'])) {
-                    $tag['colour'] = $this->random_color();
+                    $tag['colour'] = $this->tagColor($tag['name']);
                 }
                 $tag = array(
                     'name' => $tag['name'],
@@ -347,13 +348,14 @@ class Tag extends AppModel
         return $existingTag['Tag']['id'];
     }
 
-    public function random_color()
+    /**
+     * Generate tag color according to name. So color will be same on all instances.
+     * @param string $tagName
+     * @return string
+     */
+    public function tagColor($tagName)
     {
-        $colour = '#';
-        for ($i = 0; $i < 3; $i++) {
-            $colour .= str_pad(dechex(mt_rand(0, 255)), 2, '0', STR_PAD_LEFT);
-        }
-        return $colour;
+        return '#' . substr(md5($tagName), 0, 6);
     }
 
     /**
@@ -367,7 +369,7 @@ class Tag extends AppModel
     {
         $this->create();
         if ($colour === false) {
-            $colour = $this->random_color();
+            $colour = $this->tagColor($name);
         }
         $data = array(
             'name' => $name,

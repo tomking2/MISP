@@ -1,13 +1,17 @@
 <?php
 App::uses('AppShell', 'Console/Command');
+App::uses('ProcessTool', 'Tools');
+App::uses('FileAccessTool', 'Tools');
+App::uses('JsonTool', 'Tools');
 
 /**
  * @property Server $Server
  * @property Feed $Feed
+ * @property AdminSetting $AdminSetting
  */
 class AdminShell extends AppShell
 {
-    public $uses = array('Event', 'Post', 'Attribute', 'Job', 'User', 'Task', 'Allowedlist', 'Server', 'Organisation', 'AdminSetting', 'Galaxy', 'Taxonomy', 'Warninglist', 'Noticelist', 'ObjectTemplate', 'Bruteforce', 'Role', 'Feed');
+    public $uses = array('Event', 'Post', 'Attribute', 'Job', 'User', 'Task', 'Allowedlist', 'Server', 'Organisation', 'AdminSetting', 'Galaxy', 'Taxonomy', 'Warninglist', 'Noticelist', 'ObjectTemplate', 'Bruteforce', 'Role', 'Feed', 'SharingGroupBlueprint');
 
     public function getOptionParser()
     {
@@ -55,6 +59,9 @@ class AdminShell extends AppShell
                 ],
             ],
         ]);
+        $parser->addSubcommand('dumpCurrentDatabaseSchema', [
+            'help' => __('Dump current database schema to JSON file.'),
+        ]);
         $parser->addSubcommand('removeOrphanedCorrelations', [
             'help' => __('Remove orphaned correlations.'),
         ]);
@@ -66,6 +73,15 @@ class AdminShell extends AppShell
         ]);
         $parser->addSubcommand('redisReady', [
             'help' => __('Check if it is possible connect to Redis.'),
+        ]);
+        $parser->addSubcommand('securityAudit', [
+            'help' => __('Run security audit.'),
+        ]);
+        $parser->addSubcommand('securityAuditTls', [
+            'help' => __('Run security audit to test enabled/disabled ciphers and protocols in TLS connections.'),
+        ]);
+        $parser->addSubcommand('configLint', [
+            'help' => __('Check if settings has correct value.'),
         ]);
         return $parser;
     }
@@ -125,13 +141,6 @@ class AdminShell extends AppShell
         echo $this->Server->update($status) . PHP_EOL;
     }
 
-    public function restartWorkers()
-    {
-        $this->ConfigLoad->execute();
-        $this->Server->restartWorkers();
-        echo PHP_EOL . 'Workers restarted.' . PHP_EOL;
-    }
-
     public function updateAfterPull()
     {
         $this->ConfigLoad->execute();
@@ -155,8 +164,23 @@ class AdminShell extends AppShell
         }
     }
 
+    public function restartWorkers()
+    {
+        if (Configure::read('SimpleBackgroundJobs.enabled')) {
+            $this->error('This method does nothing when SimpleBackgroundJobs are enabled.');
+        }
+
+        $this->ConfigLoad->execute();
+        $this->Server->restartWorkers();
+        echo PHP_EOL . 'Workers restarted.' . PHP_EOL;
+    }
+
     public function restartWorker()
     {
+        if (Configure::read('SimpleBackgroundJobs.enabled')) {
+            $this->error('This method does nothing when SimpleBackgroundJobs are enabled.');
+        }
+
         $this->ConfigLoad->execute();
         if (empty($this->args[0]) || !is_numeric($this->args[0])) {
             die('Usage: ' . $this->Server->command_line_functions['worker_management_tasks']['data']['Restart a worker'] . PHP_EOL);
@@ -179,6 +203,10 @@ class AdminShell extends AppShell
 
     public function killWorker()
     {
+        if (Configure::read('SimpleBackgroundJobs.enabled')) {
+            $this->error('This method does nothing when SimpleBackgroundJobs are enabled.');
+        }
+
         $this->ConfigLoad->execute();
         if (empty($this->args[0]) || !is_numeric($this->args[0])) {
             die('Usage: ' . $this->Server->command_line_functions['worker_management_tasks']['data']['Kill a worker'] . PHP_EOL);
@@ -196,6 +224,10 @@ class AdminShell extends AppShell
 
     public function startWorker()
     {
+        if (Configure::read('SimpleBackgroundJobs.enabled')) {
+            $this->error('This method does nothing when SimpleBackgroundJobs are enabled.');
+        }
+
         $this->ConfigLoad->execute();
         if (empty($this->args[0])) {
             die('Usage: ' . $this->Server->command_line_functions['worker_management_tasks']['data']['Start a worker'] . PHP_EOL);
@@ -462,11 +494,7 @@ class AdminShell extends AppShell
 
     public function runUpdates()
     {
-        if (function_exists('posix_getpwuid') && function_exists('posix_geteuid')) {
-            $whoami = posix_getpwuid(posix_geteuid())['name'];
-        } else {
-            $whoami = exec('whoami');
-        }
+        $whoami = ProcessTool::whoami();
         if (in_array($whoami, ['httpd', 'www-data', 'apache', 'wwwrun', 'travis', 'www'], true) || $whoami === Configure::read('MISP.osuser')) {
             $this->out('Executing all updates to bring the database up to date with the current version.');
             $processId = empty($this->args[0]) ? false : $this->args[0];
@@ -685,21 +713,18 @@ class AdminShell extends AppShell
 
     public function dumpCurrentDatabaseSchema()
     {
-        $this->ConfigLoad->execute();
         $dbActualSchema = $this->Server->getActualDBSchema();
         $dbVersion = $this->AdminSetting->getSetting('db_version');
         if (!empty($dbVersion) && !empty($dbActualSchema['schema'])) {
-            $data = array(
+            $data = [
                 'schema' => $dbActualSchema['schema'],
                 'indexes' => $dbActualSchema['indexes'],
-                'db_version' => $dbVersion
-            );
-            $file = new File(ROOT . DS . 'db_schema.json', true);
-            $file->write(json_encode($data, JSON_PRETTY_PRINT) . "\n");
-            $file->close();
-            echo __("> Database schema dumped on disk") . PHP_EOL;
+                'db_version' => $dbVersion,
+            ];
+            FileAccessTool::writeToFile(ROOT . DS . 'db_schema.json', JsonTool::encode($data, true));
+            $this->out(__("> Database schema dumped on disk"));
         } else {
-            echo __("Something went wrong. Could not find the existing db version or fetch the current database schema.") . PHP_EOL;
+            $this->error(__('Something went wrong.'), __('Could not find the existing db version or fetch the current database schema.'));
         }
     }
 
@@ -914,7 +939,7 @@ class AdminShell extends AppShell
         $new = $this->params['new'] ?? null;
 
         if ($new !== null && strlen($new) < 32) {
-            $this->error('New key must be at least 32 char long.');
+            $this->error('New key must be at least 32 chars long.');
         }
 
         if ($old === null) {
@@ -923,8 +948,7 @@ class AdminShell extends AppShell
 
         if ($new === null) {
             // Generate random new key
-            $randomTool = new RandomTool();
-            $new = $randomTool->random_str();
+            $new = rtrim(base64_encode(random_bytes(32)), "=");
         }
 
         $this->Server->getDataSource()->begin();
@@ -1059,5 +1083,99 @@ class AdminShell extends AppShell
         $output['authkey_usage_size'] = $size;
 
         $this->out($this->json($output));
+    }
+
+    public function securityAudit()
+    {
+        // Start session to initialize ini setting for session cookies
+        CakeSession::start();
+        CakeSession::destroy();
+
+        $formatFindings = function (array $findings) {
+            $value = '';
+            foreach ($findings as $finding) {
+                if ($finding[0] === 'error') {
+                    $value .= '<error>Error:</error>';
+                } else if ($finding[0] === 'warning') {
+                    $value .= '<warning>Warning:</warning>';
+                } else if ($finding[0] === 'hint') {
+                    continue; // Ignore hints
+                }
+
+                $value .= ' ' . $finding[1] . PHP_EOL;
+            }
+            return $value;
+        };
+
+        App::uses('SecurityAudit', 'Tools');
+        $securityAudit = (new SecurityAudit())->run($this->Server, true);
+        foreach ($securityAudit as $field => $findings) {
+            $value = $formatFindings($findings);
+            if (!empty($value)) {
+                $this->out($field);
+                $this->out('==============================');
+                $this->out($value);
+            }
+        }
+    }
+
+    public function securityAuditTls()
+    {
+        App::uses('SecurityAudit', 'Tools');
+        $securityAudit = (new SecurityAudit())->tlsConnections();
+        foreach ($securityAudit as $type => $details) {
+            $result = $details['success'] ? 'True' : 'False';
+            if (isset($details['expected']) && $details['expected'] !== $details['success']) {
+                $result = "<error>$result</error>";
+            }
+            $this->out("$type: $result");
+        }
+    }
+
+    public function configLint()
+    {
+        $serverSettings = $this->Server->serverSettingsRead();
+        foreach ($serverSettings as $setting) {
+            if (!isset($setting['error'])) {
+                continue;
+            }
+            if ($setting['errorMessage'] === 'Value not set.') {
+                continue; // Skip not set values.
+            }
+            $this->out($setting['setting'] . ': ' . $setting['errorMessage']);
+        }
+    }
+
+    public function executeSGBlueprint()
+    {
+        $id = false;
+        $target = 'all';
+        if (!empty($this->args[0])) {
+            $target = trim($this->args[0]);
+        }
+        if (!is_numeric($target) && !in_array($target, ['all', 'attached', 'deteached'])) {
+            $this->error(__('Invalid target. Either pass a blueprint ID or one of the following filters: all, attached, detached.'));
+        }
+        $conditions = [];
+        if (is_numeric($target)) {
+            $conditions['SharingGroupBlueprint']['id'] = $target;
+        } else if ($target === 'attached') {
+            $conditions['SharingGroupBlueprint']['sharing_group_id >'] = 0;
+        } else if ($target === 'detached') {
+            $conditions['SharingGroupBlueprint']['sharing_group_id'] = 0;
+        }
+        $sharingGroupBlueprints = $this->SharingGroupBlueprint->find('all', ['conditions' => $conditions, 'recursive' => 0]);
+        if (empty($sharingGroupBlueprints)) {
+            $this->error(__('No valid blueprints found.'));
+        }
+        $stats = $this->SharingGroupBlueprint->execute($sharingGroupBlueprints);
+        $message = __(
+            'Done, %s sharing group blueprint(s) matched. Sharing group changes: Created: %s. Updated: %s. Failed to create: %s.',
+            count($sharingGroupBlueprints),
+            $stats['created'],
+            $stats['changed'],
+            $stats['failed']
+        );
+        $this->out($message);
     }
 }

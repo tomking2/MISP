@@ -1,6 +1,7 @@
 <?php
 
 App::uses('AppController', 'Controller');
+App::uses('JsonTool', 'Tools');
 
 /**
  * @property MispObject $MispObject
@@ -9,7 +10,7 @@ class ObjectsController extends AppController
 {
     public $uses = 'MispObject';
 
-    public $components = array('Security' ,'RequestHandler', 'Session');
+    public $components = array('RequestHandler', 'Session');
 
     public $paginate = array(
             'limit' => 20,
@@ -61,7 +62,7 @@ class ObjectsController extends AppController
         }
         $multiple_template_elements = Hash::extract($template['ObjectTemplateElement'], sprintf('{n}[multiple=true]'));
         $multiple_attribute_allowed = array();
-        foreach ($multiple_template_elements as $k => $template_element) {
+        foreach ($multiple_template_elements as $template_element) {
             $relation_type = $template_element['object_relation'] . ':' . $template_element['type'];
             $multiple_attribute_allowed[$relation_type] = true;
         }
@@ -89,6 +90,9 @@ class ObjectsController extends AppController
 
         if (isset($this->request->data['Attribute'])) {
             foreach ($this->request->data['Attribute'] as &$attribute) {
+                if (empty($attribute['uuid'])) {
+                    $attribute['uuid'] = CakeText::uuid();
+                }
                 $validation = $this->MispObject->Attribute->validateAttribute($attribute, false);
                 if ($validation !== true) {
                     $attribute['validation'] = $validation;
@@ -414,7 +418,7 @@ class ObjectsController extends AppController
               $this->request->data['Object'] = $this->request->data;
             }
             if (isset($this->request->data['Object']['data'])) {
-                $this->request->data = json_decode($this->request->data['Object']['data'], true);
+                $this->request->data = JsonTool::decode($this->request->data['Object']['data']);
             }
             if (isset($this->request->data['Object'])) {
                 $this->request->data = array_merge($this->request->data, $this->request->data['Object']);
@@ -569,21 +573,21 @@ class ObjectsController extends AppController
     public function fetchViewValue($id, $field = null)
     {
         $validFields = array('timestamp', 'comment', 'distribution', 'first_seen', 'last_seen');
-        if (!isset($field) || !in_array($field, $validFields)) {
+        if (!isset($field) || !in_array($field, $validFields, true)) {
             throw new MethodNotAllowedException('Invalid field requested.');
         }
         if (!$this->request->is('ajax')) {
             throw new MethodNotAllowedException('This function can only be accessed via AJAX.');
         }
         $params = array(
-                'conditions' => array('Object.id' => $id),
-                'fields' => array('id', 'distribution', 'event_id', $field),
-                'contain' => array(
-                        'Event' => array(
-                                'fields' => array('distribution', 'id', 'org_id'),
-                        )
-                ),
-                'flatten' => 1
+            'conditions' => array('Object.id' => $id),
+            'fields' => array('id', 'distribution', 'event_id', $field),
+            'contain' => array(
+                'Event' => array(
+                    'fields' => array('distribution', 'id', 'org_id'),
+                )
+            ),
+            'flatten' => 1
         );
         $object = $this->MispObject->fetchObjectSimple($this->Auth->user(), $params);
         if (empty($object)) {
@@ -591,10 +595,11 @@ class ObjectsController extends AppController
         }
         $object = $object[0];
         $result = $object['Object'][$field];
-        if ($field == 'distribution') {
-            $result=$this->MispObject->shortDist[$result];
+        if ($field === 'distribution') {
+            $result = $this->MispObject->shortDist[$result];
         }
         $this->set('value', $result);
+        $this->set('field', $field);
         $this->layout = 'ajax';
         $this->render('ajax/objectViewFieldForm');
     }

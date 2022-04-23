@@ -78,8 +78,7 @@ class PubSubTool
     public function publishEvent($event)
     {
         App::uses('JSONConverterTool', 'Tools');
-        $jsonTool = new JSONConverterTool();
-        $json = $jsonTool->convert($event, false, true);
+        $json = JSONConverterTool::convert($event, false, true);
         return $this->pushToRedis('data:misp_json', $json);
     }
 
@@ -252,9 +251,14 @@ class PubSubTool
     /**
      * @param array $settings
      * @return Redis
+     * @throws Exception
      */
     private function createRedisConnection(array $settings)
     {
+        if (!class_exists('Redis')) {
+            throw new Exception("Class Redis doesn't exists. Please install redis extension for PHP.");
+        }
+
         $redis = new Redis();
         $redis->connect($settings['redis_host'], $settings['redis_port']);
         $redisPassword = $settings['redis_password'];

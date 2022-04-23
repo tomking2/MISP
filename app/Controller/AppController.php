@@ -22,6 +22,7 @@ App::uses('BlowfishConstantPasswordHasher', 'Controller/Component/Auth');
  * @property CompressedRequestHandlerComponent $CompressedRequestHandler
  * @property DeprecationComponent $Deprecation
  * @property RestSearchComponent $RestSearch
+ * @property BetterSecurityComponent $Security
  */
 class AppController extends Controller
 {
@@ -33,8 +34,8 @@ class AppController extends Controller
 
     public $helpers = array('OrgImg', 'FontAwesome', 'UserName');
 
-    private $__queryVersion = '131';
-    public $pyMispVersion = '2.4.151';
+    private $__queryVersion = '139';
+    public $pyMispVersion = '2.4.157';
     public $phpmin = '7.2';
     public $phprec = '7.4';
     public $phptoonew = '8.0';
@@ -81,7 +82,9 @@ class AppController extends Controller
                 )
             )
         ),
-        'Security',
+        'Security' => [
+            'className' => 'BetterSecurity',
+        ],
         'ACL',
         'CompressedRequestHandler',
         'RestResponse',
@@ -180,7 +183,7 @@ class AppController extends Controller
         Configure::write('CurrentController', $this->request->params['controller']);
         Configure::write('CurrentAction', $this->request->params['action']);
         $versionArray = $this->User->checkMISPVersion();
-        $this->mispVersion = implode('.', array_values($versionArray));
+        $this->mispVersion = implode('.', $versionArray);
         $this->Security->blackHoleCallback = 'blackHole';
 
         // send users away that are using ancient versions of IE
@@ -199,24 +202,12 @@ class AppController extends Controller
                 if (empty($dataToDecode)) {
                     return null;
                 }
-                try {
-                    if (defined('JSON_THROW_ON_ERROR')) {
-                        // JSON_THROW_ON_ERROR is supported since PHP 7.3
-                        return json_decode($dataToDecode, true, 512, JSON_THROW_ON_ERROR);
-                    } else {
-                        $decoded = json_decode($dataToDecode, true);
-                        if ($decoded === null) {
-                            throw new UnexpectedValueException('Could not parse JSON: ' . json_last_error_msg(), json_last_error());
-                        }
-                        return $decoded;
-                    }
-                } catch (Exception $e) {
-                    throw new HttpException('Invalid JSON input. Make sure that the JSON input is a correctly formatted JSON string. This request has been blocked to avoid an unfiltered request.', 405, $e);
-                }
+                return $this->_jsonDecode($dataToDecode);
             };
             //  Throw exception if JSON in request is invalid. Default CakePHP behaviour would just ignore that error.
             $this->RequestHandler->addInputType('json', [$jsonDecode]);
             $this->Security->unlockedActions = array($this->request->action);
+            $this->Security->doNotGenerateToken = true;
         }
 
         if (
@@ -230,9 +221,7 @@ class AppController extends Controller
             // REST authentication
             if ($this->_isRest() || $this->_isAutomation()) {
                 // disable CSRF for REST access
-                if (isset($this->components['Security'])) {
-                    $this->Security->csrfCheck = false;
-                }
+                $this->Security->csrfCheck = false;
                 if ($this->__loginByAuthKey() === false || $this->Auth->user() === null) {
                     if ($this->__loginByAuthKey() === null) {
                         $this->loadModel('Log');
@@ -368,9 +357,13 @@ class AppController extends Controller
                 }
             }
         }
+    }
 
+    public function beforeRender()
+    {
         // Notifications and homepage is not necessary for AJAX or REST requests
-        if ($user && !$this->_isRest() && !$isAjax) {
+        $user = $this->Auth->user();
+        if ($user && !$this->_isRest() && isset($this->User) && !$this->request->is('ajax')) {
             $hasNotifications = $this->User->hasNotifications($user);
             $this->set('hasNotifications', $hasNotifications);
 
@@ -391,8 +384,6 @@ class AppController extends Controller
     private function __loginByAuthKey()
     {
         if (Configure::read('Security.authkey_keep_session') && $this->Auth->user()) {
-            // Do not check authkey if session is establish and correct, just close session to allow multiple requests
-            session_write_close();
             return true;
         }
 
@@ -402,6 +393,9 @@ class AppController extends Controller
             $namedParamAuthkey = $this->request->params['named']['apikey'];
         }
         // Authenticate user with authkey in Authorization HTTP header
+        if (!empty($_SERVER['HTTP_AUTHORIZATION']) && strcasecmp(substr($_SERVER['HTTP_AUTHORIZATION'], 0, 5), "Basic") == 0) { // Skip Basic Authorizations
+            return null;
+        }
         if (!empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($namedParamAuthkey)) {
             $foundMispAuthKey = false;
             $authentication = explode(',', $_SERVER['HTTP_AUTHORIZATION']);
@@ -534,7 +528,7 @@ class AppController extends Controller
             return false;
         }
 
-        if ($user['disabled']) {
+        if ($user['disabled'] || (isset($user['logged_by_authkey']) && $user['logged_by_authkey']) && !$this->User->checkIfUserIsValid($user)) {
             if ($this->_shouldLog('disabled:' . $user['id'])) {
                 $this->Log = ClassRegistry::init('Log');
                 $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], 'Login attempt by disabled user.');
@@ -1304,7 +1298,7 @@ class AppController extends Controller
     protected function __canModifyEvent(array $event)
     {
         if (!isset($event['Event'])) {
-            throw new InvalidArgumentException('Passed object does not contains Event.');
+            throw new InvalidArgumentException('Passed object does not contain an Event.');
         }
 
         if ($this->userRole['perm_site_admin']) {
@@ -1314,6 +1308,27 @@ class AppController extends Controller
             return true;
         }
         if ($this->userRole['perm_modify'] && $event['Event']['user_id'] == $this->Auth->user()['id']) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if user can publish the given event.
+     *
+     * @param array $event
+     * @return bool
+     */
+    protected function __canPublishEvent(array $event)
+    {
+        if (!isset($event['Event'])) {
+            throw new InvalidArgumentException('Passed object does not contain an Event.');
+        }
+
+        if ($this->userRole['perm_site_admin']) {
+            return true;
+        }
+        if ($this->userRole['perm_publish'] && $event['Event']['orgc_id'] == $this->Auth->user()['org_id']) {
             return true;
         }
         return false;
@@ -1407,6 +1422,42 @@ class AppController extends Controller
             return $redis->get('misp:live') !== '0';
         } catch (Exception $e) {
             return true;
+        }
+    }
+
+    /**
+     * Override default View class
+     * @return View
+     */
+    protected function _getViewObject()
+    {
+        if ($this->viewClass === 'View') {
+            App::uses('AppView', 'View');
+            return new AppView($this);
+        }
+        return parent::_getViewObject();
+    }
+
+    /**
+     * Decode JSON with proper error handling.
+     * @param string $dataToDecode
+     * @return mixed
+     */
+    protected function _jsonDecode($dataToDecode)
+    {
+        try {
+            if (defined('JSON_THROW_ON_ERROR')) {
+                // JSON_THROW_ON_ERROR is supported since PHP 7.3
+                return json_decode($dataToDecode, true, 512, JSON_THROW_ON_ERROR);
+            } else {
+                $decoded = json_decode($dataToDecode, true);
+                if ($decoded === null) {
+                    throw new UnexpectedValueException('Could not parse JSON: ' . json_last_error_msg(), json_last_error());
+                }
+                return $decoded;
+            }
+        } catch (Exception $e) {
+            throw new HttpException('Invalid JSON input. Make sure that the JSON input is a correctly formatted JSON string. This request has been blocked to avoid an unfiltered request.', 405, $e);
         }
     }
 }

@@ -16,7 +16,7 @@
             $filterParamsString[] = sprintf(
                 '%s: %s',
                 h(ucfirst($k)),
-                h($v)
+                h(is_array($v) ? http_build_query($v) : h($v) )
             );
         }
 
@@ -30,7 +30,9 @@
             'sightings' => __('Sightings'),
             'proposals' => __('Proposals'),
             'discussion' => __('Posts'),
-            'report_count' => __('Report count')
+            'report_count' => __('Report count'),
+            'timestamp' => __('Last change at'),
+            'publish_timestamp' => __('Published at')
         ];
 
         $columnsMenu = [];
@@ -66,6 +68,13 @@
                             'fa-icon' => 'trash',
                             'class' => 'hidden mass-select',
                             'onClick' => 'multiSelectDeleteEvents'
+                        ),
+                        array(
+                            'id' => 'multi-export-button',
+                            'title' => __('Export selected events'),
+                            'fa-icon' => 'file-export',
+                            'class' => 'hidden mass-select',
+                            'onClick' => 'multiSelectExportEvents'
                         )
                     )
                 ),
@@ -126,6 +135,13 @@
                     'button' => __('Filter'),
                     'placeholder' => __('Enter value to search'),
                     'data' => '',
+                    'searchScopes' => [
+                        'searcheventinfo' => __('Event info'),
+                        'searchall' => __('All fields'),
+                        'searcheventid' => __('ID / UUID'),
+                        'searchtags' => __('Tag'),
+                    ],
+                    'searchKey' => 'searcheventinfo',
                 )
             )
         );
@@ -152,6 +168,9 @@
     $(function() {
         $('.searchFilterButton').click(function() {
             runIndexFilter(this);
+        });
+        $('#quickFilterScopeSelector').change(function() {
+            $('#quickFilterField').data('searchkey', this.value)
         });
         $('#quickFilterButton').click(function() {
             runIndexQuickFilter();

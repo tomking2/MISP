@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import os
-import unittest
+import json
 import uuid
+import subprocess
+import unittest
+from xml.etree import ElementTree as ET
 from io import BytesIO
 import urllib3  # type: ignore
 
@@ -10,7 +13,7 @@ logging.disable(logging.CRITICAL)
 logger = logging.getLogger('pymisp')
 
 
-from pymisp import PyMISP, MISPOrganisation, MISPUser, MISPRole, MISPSharingGroup, MISPEvent, MISPLog, MISPSighting, Distribution, ThreatLevel, Analysis
+from pymisp import PyMISP, MISPOrganisation, MISPUser, MISPRole, MISPSharingGroup, MISPEvent, MISPLog, MISPSighting, Distribution, ThreatLevel, Analysis, MISPEventReport, MISPServerError
 
 # Load access information for env variables
 url = "http://" + os.environ["HOST"]
@@ -35,6 +38,35 @@ def check_response(response):
     return response
 
 
+def request(pymisp: PyMISP, request_type: str, url: str, data: dict = {}) -> dict:
+    response = pymisp._prepare_request(request_type, url, data)
+    return pymisp._check_json_response(response)
+
+
+class MISPSetting:
+    def __init__(self, admin_connector: PyMISP, new_setting: dict):
+        self.admin_connector = admin_connector
+        self.new_setting = new_setting
+
+    def __enter__(self):
+        self.original = self.__run("modify", json.dumps(self.new_setting))
+        # Try to reset config cache
+        self.admin_connector.get_server_setting("MISP.live")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.__run("replace", self.original)
+        # Try to reset config cache
+        self.admin_connector.get_server_setting("MISP.live")
+
+    @staticmethod
+    def __run(command: str, data: str) -> str:
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        r = subprocess.run(["php", dir_path + "/modify_config.php", command, data], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if r.returncode != 0:
+            raise Exception([r.returncode, r.stdout, r.stderr])
+        return r.stdout.decode("utf-8")
+
+
 class TestComprehensive(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -46,7 +78,7 @@ class TestComprehensive(unittest.TestCase):
         organisation = MISPOrganisation()
         organisation.name = 'Test Org'
         cls.test_org = cls.admin_misp_connector.add_organisation(organisation, pythonify=True)
-        # Set the refault role (id 3 on the VM)
+        # Set the default role (id 3 on the VM)
         cls.admin_misp_connector.set_default_role(3)
         # Creates a user
         user = MISPUser()
@@ -227,6 +259,27 @@ class TestComprehensive(unittest.TestCase):
 
         # Search by partial match
         index = self.admin_misp_connector.search_index(email="testusr@user")
+        self.assertEqual(len(index), 1, index)
+
+        self.user_misp_connector.delete_event(event)
+
+    def test_search_index_by_eventid(self):
+        # Search by non exists uuid
+        index = self.admin_misp_connector.search_index(eventid=uuid.uuid4())
+        self.assertEqual(len(index), 0, index)
+
+        # Search by non exists id
+        index = self.admin_misp_connector.search_index(eventid=9999)
+        self.assertEqual(len(index), 0, index)
+
+        event = create_simple_event()
+        event = self.user_misp_connector.add_event(event)
+        check_response(event)
+
+        index = self.admin_misp_connector.search_index(eventid=event.id)
+        self.assertEqual(len(index), 1, index)
+
+        index = self.admin_misp_connector.search_index(eventid=event.uuid)
         self.assertEqual(len(index), 1, index)
 
         self.user_misp_connector.delete_event(event)
@@ -564,6 +617,140 @@ class TestComprehensive(unittest.TestCase):
         fetched_event = check_response(self.admin_misp_connector.get_event(event))
         self.assertEqual(1, len(fetched_event.tags), fetched_event.tags)
         self.assertTrue(fetched_event.tags[0].local, fetched_event.tags[0])
+
+    def test_export(self):
+        event = create_simple_event()
+        event.add_attribute("ip-src", "1.2.4.5", to_ids=True)
+        event = check_response(self.admin_misp_connector.add_event(event))
+
+        result = self._search({'returnFormat': "openioc", 'eventid': event.id, "published": [0, 1]})
+        ET.fromstring(result)  # check if result is valid XML
+        self.assertTrue("1.2.4.5" in result, result)
+
+        result = self._search({'returnFormat': "yara", 'eventid': event.id, "published": [0, 1]})
+        self.assertTrue("1.2.4.5" in result, result)
+        self.assertTrue("GENERATED" in result, result)
+        self.assertTrue("AS-IS" in result, result)
+
+        result = self._search({'returnFormat': "yara-json", 'eventid': event.id, "published": [0, 1]})
+        self.assertIn("generated", result)
+        self.assertEqual(len(result["generated"]), 1, result)
+        self.assertIn("as-is", result)
+
+        check_response(self.admin_misp_connector.delete_event(event))
+
+    def test_event_report_empty_name(self):
+        event = create_simple_event()
+        new_event_report = MISPEventReport()
+        new_event_report.name = ""
+        new_event_report.content = "# Example report markdown"
+        new_event_report.distribution = 5  # Inherit
+
+        try:
+            event = check_response(self.user_misp_connector.add_event(event))
+            new_event_report = self.user_misp_connector.add_event_report(event.id, new_event_report)
+            self.assertIn("errors", new_event_report)
+        finally:
+            self.user_misp_connector.delete_event(event)
+
+    def test_new_audit(self):
+        with MISPSetting(self.admin_misp_connector, {"MISP.log_new_audit": True}):
+            event = create_simple_event()
+            event = check_response(self.user_misp_connector.add_event(event))
+            self.user_misp_connector.delete_event(event)
+
+    def test_csp_report(self):
+        response = self.admin_misp_connector._prepare_request('POST', 'servers/cspReport', data={
+            "csp-report": {
+                "test": "test",
+            }
+        })
+        self.assertEqual(204, response.status_code)
+
+    def test_redacted_setting(self):
+        response = self.admin_misp_connector.get_server_setting('Security.salt')
+        self.assertEqual(403, response["errors"][0])
+
+        response = self.admin_misp_connector._prepare_request('GET', 'servers/serverSettingsEdit/Security.salt')
+        response = self.admin_misp_connector._check_json_response(response)
+        self.assertEqual(403, response["errors"][0])
+
+    def test_custom_warninglist(self):
+        warninglist = {
+            "Warninglist": {
+                "name": "Test",
+                "description": "Test",
+                "type": "cidr",
+                "category": "false_positive",
+                "matching_attributes": ["ip-src", "ip-dst"],
+                "entries": "1.2.3.4",
+            }
+        }
+        wl = request(self.admin_misp_connector, 'POST', 'warninglists/add', data=warninglist)
+        check_response(wl)
+
+        check_response(self.admin_misp_connector.enable_warninglist(wl["Warninglist"]["id"]))
+
+        response = self.admin_misp_connector.values_in_warninglist("1.2.3.4")
+        self.assertEqual(wl["Warninglist"]["id"], response["1.2.3.4"][0]["id"])
+
+        warninglist["Warninglist"]["entries"] = "1.2.3.4\n2.3.4.5"
+        response = request(self.admin_misp_connector, 'POST', f'warninglists/edit/{wl["Warninglist"]["id"]}', data=warninglist)
+        check_response(response)
+
+        response = self.admin_misp_connector.values_in_warninglist("2.3.4.5")
+        self.assertEqual(wl["Warninglist"]["id"], response["2.3.4.5"][0]["id"])
+
+        warninglist["Warninglist"]["entries"] = "2.3.4.5"
+        response = request(self.admin_misp_connector, 'POST', f'warninglists/edit/{wl["Warninglist"]["id"]}', data=warninglist)
+        check_response(response)
+
+        response = self.admin_misp_connector.values_in_warninglist("1.2.3.4")
+        self.assertEqual(0, len(response))
+
+        response = self.admin_misp_connector.values_in_warninglist("2.3.4.5")
+        self.assertEqual(wl["Warninglist"]["id"], response["2.3.4.5"][0]["id"])
+
+        check_response(self.admin_misp_connector.disable_warninglist(wl["Warninglist"]["id"]))
+
+        response = self.admin_misp_connector.values_in_warninglist("2.3.4.5")
+        self.assertEqual(0, len(response))
+
+        response = request(self.admin_misp_connector, 'POST', f'warninglists/delete/{wl["Warninglist"]["id"]}')
+        check_response(response)
+
+    def test_protected_event(self):
+        event = create_simple_event()
+        event = check_response(self.admin_misp_connector.add_event(event))
+
+        response = request(self.admin_misp_connector, 'POST', f'events/protect/{event.id}')
+        check_response(response)
+
+        response = request(self.admin_misp_connector, 'POST', f'events/unprotect/{event.uuid}')
+        check_response(response)
+
+        response = request(self.admin_misp_connector, 'POST', f'events/protect/{event.uuid}')
+        check_response(response)
+
+        response = self.admin_misp_connector._prepare_request('GET', f'events/view/{event.id}')
+        self.assertIn('x-pgp-signature', response.headers)
+        self.assertTrue(len(response.headers['x-pgp-signature']) > 0, response.headers['x-pgp-signature'])
+
+    def test_get_all_apis(self):
+        response = self.admin_misp_connector._prepare_request('GET', 'api/getAllApis.json')
+        self.assertEqual(200, response.status_code, response)
+        response.json()
+
+    def test_taxonomy_export(self):
+        response = self.admin_misp_connector._prepare_request('GET', 'taxonomies/export/1')
+        self.assertEqual(200, response.status_code, response)
+        response.json()
+
+    def _search(self, query: dict):
+        response = self.admin_misp_connector._prepare_request('POST', 'events/restSearch', data=query)
+        response = self.admin_misp_connector._check_response(response)
+        check_response(response)
+        return response
 
 
 if __name__ == '__main__':
