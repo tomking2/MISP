@@ -1467,7 +1467,8 @@ class Event extends AppModel
                     'org' => array('function' => 'set_filter_org', 'pop' => true),
                     'uuid' => array('function' => 'set_filter_uuid', 'pop' => true),
                     'published' => array('function' => 'set_filter_published', 'pop' => true),
-                    'threat_level_id' => array('function' => 'set_filter_threat_level_id', 'pop' => true)
+                    'threat_level_id' => array('function' => 'set_filter_threat_level_id', 'pop' => true),
+                    'sharinggroup' => array('function' => 'set_filter_sharing_group')
                 ),
                 'Object' => array(
                     'object_name' => array('function' => 'set_filter_object_name'),
@@ -1484,7 +1485,8 @@ class Event extends AppModel
                     'ignore' => array('function' => 'set_filter_ignore'),
                     'deleted' => array('function' => 'set_filter_deleted'),
                     'to_ids' => array('function' => 'set_filter_to_ids'),
-                    'comment' => array('function' => 'set_filter_comment')
+                    'comment' => array('function' => 'set_filter_comment'),
+                    'sharinggroup' => array('function' => 'set_filter_sharing_group')
                 )
             );
             foreach ($params as $param => $paramData) {
