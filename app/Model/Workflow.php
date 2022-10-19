@@ -1,6 +1,7 @@
 <?php
 App::uses('AppModel', 'Model');
 App::uses('WorkflowGraphTool', 'Tools');
+App::uses('Folder', 'Utility');
 
 class WorkflowDuplicatedModuleIDException extends Exception {}
 class TriggerNotFoundException extends Exception {}
@@ -506,9 +507,11 @@ class Workflow extends AppModel
         $this->__logToFile($workflow, $message);
         $workflow = $this->__incrementWorkflowExecutionCount($workflow);
         $walkResult = [];
+        $debugData = ['original' => $data];
         $data = $this->__normalizeDataForTrigger($triggerModule, $data);
+        $debugData['normalized'] = $data;
         $for_path = !empty($triggerModule->blocking) ? GraphWalker::PATH_TYPE_BLOCKING : GraphWalker::PATH_TYPE_NON_BLOCKING;
-        $this->sendRequestToDebugEndpoint($workflow, [], '/init?type=' . $for_path, $data);
+        $this->sendRequestToDebugEndpoint($workflow, [], '/init?type=' . $for_path, $debugData);
 
         $blockingPathExecutionSuccess = $this->walkGraph($workflow, $startNodeID, $for_path, $data, $blockingErrors, $walkResult);
         $executionStoppedByStopModule = in_array('stop-execution', Hash::extract($walkResult, 'blocking_nodes.{n}.data.id'));
@@ -551,38 +554,7 @@ class Workflow extends AppModel
             'executed_nodes' => [],
             'blocked_paths' => [],
         ];
-        $this->Organisation = ClassRegistry::init('Organisation');
-        $hostOrg = $this->Organisation->find('first', [
-            'recursive' => -1,
-            'conditions' => [
-                'id' => Configure::read('MISP.host_org_id')
-            ],
-        ]);
-        if (!empty($hostOrg)) {
-            $userForWorkflow = [
-                'email' => 'SYSTEM',
-                'id' => 0,
-                'org_id' => $hostOrg['Organisation']['id'],
-                'Role' => ['perm_site_admin' => 1],
-                'Organisation' => $hostOrg['Organisation']
-            ];
-        } else {
-            $this->User = ClassRegistry::init('User');
-            $userForWorkflow = $this->User->find('first', [
-                'recursive' => -1,
-                'conditions' => [
-                    'Role.perm_site_admin' => 1,
-                    'User.disabled' => 0
-                ],
-                'contain' => [
-                    'Organisation' => ['fields' => ['name']],
-                    'Role' => ['fields' => ['*']],
-                ],
-                'fields' => ['User.org_id', 'User.id', 'User.email'],
-            ]);
-            $userForWorkflow['Server'] = [];
-            $userForWorkflow = $this->User->rearrangeToAuthForm($userForWorkflow);
-        }
+        $userForWorkflow = $this->getUserForWorkflow();
         if (empty($userForWorkflow)) {
             $errors[] = __('Could not find a valid user to run the workflow. Please set setting `MISP.host_org_id` or make sure a valid site_admin user exists.');
             return false;
@@ -623,6 +595,43 @@ class Workflow extends AppModel
             }
         }
         return true;
+    }
+
+    public function getUserForWorkflow(): array
+    {
+        $this->Organisation = ClassRegistry::init('Organisation');
+        $hostOrg = $this->Organisation->find('first', [
+            'recursive' => -1,
+            'conditions' => [
+                'id' => Configure::read('MISP.host_org_id')
+            ],
+        ]);
+        if (!empty($hostOrg)) {
+            $userForWorkflow = [
+                'email' => 'SYSTEM',
+                'id' => 0,
+                'org_id' => $hostOrg['Organisation']['id'],
+                'Role' => ['perm_site_admin' => 1],
+                'Organisation' => $hostOrg['Organisation']
+            ];
+        } else {
+            $this->User = ClassRegistry::init('User');
+            $userForWorkflow = $this->User->find('first', [
+                'recursive' => -1,
+                'conditions' => [
+                    'Role.perm_site_admin' => 1,
+                    'User.disabled' => 0
+                ],
+                'contain' => [
+                    'Organisation' => ['fields' => ['name']],
+                    'Role' => ['fields' => ['*']],
+                ],
+                'fields' => ['User.org_id', 'User.id', 'User.email'],
+            ]);
+            $userForWorkflow['Server'] = [];
+            $userForWorkflow = $this->User->rearrangeToAuthForm($userForWorkflow);
+            return $userForWorkflow;
+        }
     }
 
     public function executeNode(array $node, WorkflowRoamingData $roamingData, array &$errors=[]): bool
@@ -716,7 +725,7 @@ class Workflow extends AppModel
      * @return array
      * @throws ModuleNotFoundException
      */
-    public function getModuleConfigByType($module_type, $id, $throwException=false): array
+    public function getModuleConfigByType($module_type, $id, $throwException=false): ?array
     {
         $this->loadAllWorkflowModules();
         $moduleConfig = $this->loaded_modules[$module_type][$id] ?? null;
@@ -777,6 +786,11 @@ class Workflow extends AppModel
                             '__show_in_node' => true,
                         ];
                     }
+                }
+                if ($moduleType == 'modules_action') {
+                    $moduleClass = $this->getModuleClassByType('action', $module['id']);
+                    $diagnostic = $moduleClass->diagnostic();
+                    $modules[$moduleType][$i]['notifications'] = array_merge_recursive($modules[$moduleType][$i]['notifications'], $diagnostic);
                 }
             }
         }
@@ -1262,6 +1276,56 @@ class Workflow extends AppModel
     }
 
     /**
+     * moduleSattelesExecution Executes a module using the provided configuration and returns back the result
+     *
+     * @param string $module_id
+     * @param string|array $input_data
+     * @param array $param_data
+     * @return array
+     */
+    public function moduleStatelessExecution(string $module_id, $input_data=[], array $param_data=[]): array
+    {
+        $result = [];
+        $input_data = !empty($input_data) ? $input_data : [];
+        $eventPublishTrigger = $this->getModuleClassByType('trigger', 'event-publish');
+        $data = $this->__normalizeDataForTrigger($eventPublishTrigger, $input_data);
+        $module_config = $this->getModuleByID($module_id);
+        $node = $this->genNodeFromConfig($module_config, $param_data);
+        $module_class = $this->getModuleClass($node);
+        $user_for_workflow = $this->getUserForWorkflow();
+        if (empty($user_for_workflow)) {
+            $result['error'][] = __('Could not find a valid user to run the workflow. Please set setting `MISP.host_org_id` or make sure a valid site_admin user exists.');
+            return $result;
+        }
+        $roaming_data = $this->workflowGraphTool->getRoamingData($user_for_workflow, $data);
+        $errors = [];
+        $success = $module_class->exec($node, $roaming_data, $errors);
+        $result['success'] = $success;
+        $result['errors'] = $errors;
+        return $result;
+    }
+
+    public function genNodeFromConfig(array $module_config, $indexed_params): array
+    {
+        $node = [
+            'id' => 1,
+            'name' => $module_config['name'],
+            'data' => [
+                'id' => $module_config['id'],
+                'name' => $module_config['name'],
+                'module_type' => $module_config['module_type'],
+                'module_version' => $module_config['version'],
+                'indexed_params' => $indexed_params,
+                'saved_filters' => $module_config['saved_filters'],
+                'module_data' => $module_config,
+            ],
+            'inputs' => [],
+            'outputs' => [],
+        ];
+        return $node;
+    }
+
+    /**
      * hasPathWarnings
      *
      * @param array $graphData
@@ -1320,7 +1384,7 @@ class Workflow extends AppModel
         $socket = new HttpSocket([
             'timeout' => 5
         ]);
-        $uri = sprintf('%s%s', $debug_url, $path);
+        $uri = sprintf('%s/%s%s', $debug_url, $workflow['Workflow']['trigger_id'], $path);
         $dataToPost = [
             'source' => [
                 'node_id' => $node['id'] ?? '',

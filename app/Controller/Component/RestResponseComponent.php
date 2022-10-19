@@ -88,7 +88,7 @@ class RestResponseComponent extends Component
             'restSearch' => array(
                 'description' => "Search MISP using a list of filter parameters and return the data in the selected format. The search is available on an event and an attribute level, just select the scope via the URL (/events/restSearch vs /attributes/restSearch). Besides the parameters listed, other, format specific ones can be passed along (for example: requested_attributes and includeContext for the CSV export). This API allows pagination via the page and limit parameters.",
                 'mandatory' => array('returnFormat'),
-                'optional' => array('page', 'limit', 'value', 'type', 'category', 'org', 'tag', 'tags', 'searchall', 'date', 'last', 'eventid', 'withAttachments', 'metadata', 'uuid', 'published', 'publish_timestamp', 'timestamp', 'enforceWarninglist', 'sgReferenceOnly', 'eventinfo', 'sharinggroup', 'excludeLocalTags', 'threat_level_id'),
+                'optional' => array('page', 'limit', 'value', 'type', 'category', 'org', 'tag', 'tags', 'event_tags', 'searchall', 'date', 'last', 'eventid', 'withAttachments', 'metadata', 'uuid', 'published', 'publish_timestamp', 'timestamp', 'enforceWarninglist', 'sgReferenceOnly', 'eventinfo', 'sharinggroup', 'excludeLocalTags', 'threat_level_id'),
                 'params' => array()
             ),
             'addTag' => array(
@@ -155,7 +155,7 @@ class RestResponseComponent extends Component
             ),
             'restSearch' => array(
                 'description' => "Search MISP using a list of filter parameters and return the data in the selected format. This API allows pagination via the page and limit parameters.",
-                'optional' => array('page', 'limit', 'id', 'uuid', 'galaxy_id', 'galaxy_uuid', 'version', 'distribution', 'org_id', 'orgc_id', 'tag_name', 'custom', 'minimal', 'published', 'value', 'extends_uuid'),
+                'optional' => array('page', 'limit', 'id', 'uuid', 'galaxy_id', 'galaxy_uuid', 'version', 'distribution', 'org_id', 'orgc_id', 'tag_name', 'custom', 'minimal', 'published', 'value', 'elements', 'extends_uuid'),
                 'params' => array()
             ),
         ),
@@ -748,9 +748,10 @@ class RestResponseComponent extends Component
     public function sendFile($path, $type = null, $download = false, $name = 'download')
     {
         App::uses('CakeResponseFile', 'Tools');
-        $cakeResponse = new CakeResponseFile([
-            'type' => $type
-        ]);
+        $cakeResponse = new CakeResponseFile();
+        // if $type will not recognized, default type will be 'application/octet-stream' and not text/html
+        $cakeResponse->type('application/octet-stream');
+        $cakeResponse->type($type);
         $cakeResponse->file($path, ['name' => $name, 'download' => $download]);
         if (Configure::read('Security.disable_browser_cache')) {
             $cakeResponse->disableCache();
@@ -1034,6 +1035,12 @@ class RestResponseComponent extends Component
                 'type' => 'integer',
                 'operators' => ['equal', 'not_equal'],
                 'values' => array(0 => 'dist1'),
+            ),
+            'elements' => array(
+                'input' => 'text',
+                'type' => 'string',
+                'operators' => array('equal'),
+                'help' => __('Allow providing a JSON containing the keys and values to search for. Example: {"synonyms": "apt42"} (all condition are ANDed)'),
             ),
             'email' => array(
                 'input' => 'text',
