@@ -53,6 +53,7 @@ class AuditLogsController extends AppController
         'News',
         'Warninglist',
         'Workflow',
+        'WorkflowBlueprint',
     ];
 
     public $paginate = [
@@ -99,7 +100,9 @@ class AuditLogsController extends AppController
         if ($this->_isRest()) {
             $this->paginate['fields'][] = 'request_id';
         }
-
+        if (!Configure::read('MISP.log_new_audit')) {
+            $this->Flash->warning(__("Audit log is not enabled. See 'MISP.log_new_audit' in the Server Settings. (Administration -> Server Settings -> MISP tab)"));
+        }
         $params = $this->IndexFilter->harvestParameters([
             'ip',
             'user',
