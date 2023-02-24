@@ -117,8 +117,14 @@ class UsersController extends AppController
         return new CakeResponse(array('body'=> json_encode(array('saved' => false, 'errors' => 'Something went wrong, please try again later.')), 'status'=>200, 'type' => 'json'));
     }
 
-    public function unsubscribe($code)
+    public function unsubscribe($code, $type = null)
     {
+        if ($type === null) {
+            $type = 'autoalert';
+        } else if (!in_array($type, ['autoalert', 'notification_daily', 'notification_weekly', 'notification_monthly'], true)) {
+            throw new NotFoundException("Invalid type $type.");
+        }
+
         $user = $this->Auth->user();
 
         if (!hash_equals($this->User->unsubscribeCode($user), rtrim($code, '.'))) {
@@ -126,11 +132,11 @@ class UsersController extends AppController
             $this->redirect(['action' => 'view', 'me']);
         }
 
-        if ($user['autoalert']) {
-            $this->User->updateField($this->Auth->user(), 'autoalert', false);
-            $this->Flash->success(__('Successfully unsubscribed from event alert.'));
+        if ($user[$type]) {
+            $this->User->updateField($user, $type, false);
+            $this->Flash->success(__('Successfully unsubscribed from notification.'));
         } else {
-            $this->Flash->info(__('Already unsubscribed from event alert.'));
+            $this->Flash->info(__('Already unsubscribed from notification.'));
         }
         $this->redirect(['action' => 'view', 'me']);
     }
@@ -1080,27 +1086,35 @@ class UsersController extends AppController
 
     public function admin_delete($id = null)
     {
-        $this->request->allowMethod(['post', 'delete']);
-
-        $user = $this->User->find('first', array(
-            'conditions' => $this->__adminFetchConditions($id),
-            'recursive' => -1
-        ));
-        if (empty($user)) {
-            throw new NotFoundException(__('Invalid user'));
-        }
-        if ($this->User->delete($id)) {
-            $fieldsDescrStr = 'User (' . $id . '): ' . $user['User']['email'];
-            $this->User->extralog($this->Auth->user(), "delete", $fieldsDescrStr, '');
-            if ($this->_isRest()) {
-                return $this->RestResponse->saveSuccessResponse('User', 'admin_delete', $id, $this->response->type(), 'User deleted.');
-            } else {
-                $this->Flash->success(__('User deleted'));
-                $this->redirect(array('action' => 'index'));
+        if ($this->request->is('post') || $this->request->is('delete')) {
+            $user = $this->User->find('first', array(
+                'conditions' => $this->__adminFetchConditions($id),
+                'recursive' => -1
+            ));
+            if (empty($user)) {
+                throw new NotFoundException(__('Invalid user'));
             }
+            if ($this->User->delete($id)) {
+                $fieldsDescrStr = 'User (' . $id . '): ' . $user['User']['email'];
+                $this->User->extralog($this->Auth->user(), "delete", $fieldsDescrStr, '');
+                if ($this->_isRest()) {
+                    return $this->RestResponse->saveSuccessResponse('User', 'admin_delete', $id, $this->response->type(), 'User deleted.');
+                } else {
+                    $this->Flash->success(__('User deleted'));
+                    $this->redirect(array('action' => 'index'));
+                }
+            }
+            $this->Flash->error(__('User was not deleted'));
+            $this->redirect(array('action' => 'index'));
+        } else {
+            $this->set(
+                'question',
+                __('Are you sure you want to delete the user? It is highly recommended to never delete users but to disable them instead.')
+            );
+            $this->set('title', __('Delete user'));
+            $this->set('actionName', 'Delete');
+            $this->render('/genericTemplates/confirm');
         }
-        $this->Flash->error(__('User was not deleted'));
-        $this->redirect(array('action' => 'index'));
     }
 
     public function admin_massToggleField($fieldName, $enabled)
@@ -1216,6 +1230,11 @@ class UsersController extends AppController
                     $this->Bruteforce->insert($this->request->data['User']['email']);
                 }
             }
+
+            //
+            // Actions needed for the first access, when the database is not populated yet.
+            // 
+
             // populate the DB with the first role (site admin) if it's empty
             if (!$this->User->Role->hasAny()) {
                 $siteAdmin = array('Role' => array(
@@ -1265,7 +1284,6 @@ class UsersController extends AppController
                 }
                 $org_id = $this->User->Organisation->id;
             }
-
             // populate the DB with the first user if it's empty
             if (!$this->User->hasAny()) {
                 if (!isset($org_id)) {
@@ -1277,7 +1295,6 @@ class UsersController extends AppController
                         $org_id = $firstOrg['Organisation']['id'];
                     }
                 }
-
                 $this->User->runUpdates();
                 $this->User->createInitialUser($org_id);
             }
@@ -1286,25 +1303,25 @@ class UsersController extends AppController
 
     private function _postlogin()
     {
-      $this->User->extralog($this->Auth->user(), "login");
-      $this->User->Behaviors->disable('SysLogLogable.SysLogLogable');
-      $this->User->id = $this->Auth->user('id');
-      $user = $this->User->find('first', array(
-          'conditions' => array(
-              'User.id' => $this->Auth->user('id')
-          ),
-          'recursive' => -1
-      ));
-      unset($user['User']['password']);
-      $this->User->updateLoginTimes($user['User']);
-      $lastUserLogin = $user['User']['last_login'];
-      $this->User->Behaviors->enable('SysLogLogable.SysLogLogable');
-      if ($lastUserLogin) {
-          $readableDatetime = (new DateTime())->setTimestamp($lastUserLogin)->format('D, d M y H:i:s O'); // RFC822
-          $this->Flash->info(__('Welcome! Last login was on %s', $readableDatetime));
-      }
-      // no state changes are ever done via GET requests, so it is safe to return to the original page:
-      $this->redirect($this->Auth->redirectUrl());
+        $this->User->extralog($this->Auth->user(), "login");
+        $this->User->Behaviors->disable('SysLogLogable.SysLogLogable');
+        $this->User->id = $this->Auth->user('id');
+        $user = $this->User->find('first', array(
+            'conditions' => array(
+                'User.id' => $this->Auth->user('id')
+            ),
+            'recursive' => -1
+        ));
+        unset($user['User']['password']);
+        $this->User->updateLoginTimes($user['User']);
+        $lastUserLogin = $user['User']['last_login'];
+        $this->User->Behaviors->enable('SysLogLogable.SysLogLogable');
+        if ($lastUserLogin) {
+            $readableDatetime = (new DateTime())->setTimestamp($lastUserLogin)->format('D, d M y H:i:s O'); // RFC822
+            $this->Flash->info(__('Welcome! Last login was on %s', $readableDatetime));
+        }
+        // no state changes are ever done via GET requests, so it is safe to return to the original page:
+        $this->redirect($this->Auth->redirectUrl());
     }
 
     public function routeafterlogin()
@@ -2827,5 +2844,56 @@ class UsersController extends AppController
             $conditions['User.org_id'] = $user['org_id']; // org admin
         }
         return $conditions;
+    }
+
+    public function admin_destroy($id = null)
+    {
+        $conditionFields = ['id', 'email'];
+        $params = $this->IndexFilter->harvestParameters(['id', 'email']);
+        if (!empty($id)) {
+            $params['id'] = $id;
+        }
+        $conditions = [];
+        foreach ($conditionFields as $conditionField) {
+            if (!empty($params[$conditionField])) {
+                $conditions[$conditionField . ' LIKE'] = $params[$conditionField];
+            }
+        }
+        if (!empty($conditions)) {
+            $user_ids = $this->User->find('list', [
+                'recursive' => -1,
+                'fields' => ['email', 'id'],
+                'conditions' => $conditions
+            ]);
+        } else {
+            $user_ids = [__('Every user') => 'all'];
+        }
+        if ($this->request->is('post')) {
+            $redis = RedisTool::init();
+            $kill_before = time();
+            foreach (array_values($user_ids) as $user_id) {
+                $redis->set('misp:session_destroy:' . $user_id, $kill_before);
+            }
+            $message = __(
+                'Session destruction cutoff set to the current timestamp for the given selection (%s). Session(s) will be destroyed on the next user interaction.',
+                implode(', ', array_keys($user_ids))
+            );
+            if ($this->_isRest()) {
+                return $this->RestResponse->saveSuccessResponse('User', 'admin_destroy', false, $this->response->type(), $message);
+            }
+            $this->Flash->success($message);
+            $this->redirect($this->referer());
+        } else {
+            $this->set(
+                'question',
+                __(
+                    'Do you really wish to destroy the session for: %s ? The session destruction will occur when the users try to interact with MISP the next time.',
+                    implode(', ', array_keys($user_ids))
+                )
+            );
+            $this->set('title', __('Destroy sessions'));
+            $this->set('actionName', 'Destroy');
+            $this->render('/genericTemplates/confirm');
+        }
     }
 }
