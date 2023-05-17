@@ -129,6 +129,9 @@ var dotBlock_error = doT.template(' \
     </div> \
 </div>')
 
+var dotBlock_connectionLabel = doT.template(' \
+<span class="label label-{{=it.variant}}" id="{{=it.id}}">{{=it.name}}</span>')
+
 var classBySeverity = {
     'info': 'info',
     'warning': 'warning',
@@ -672,7 +675,7 @@ function getEditorData(cleanNodes) {
                 node.data.params = deleteInvalidParams(node.data.params)
                 cleanedIndexedParams = {}
                 node.data.params.forEach(function(param) {
-                    cleanedIndexedParams[param.id] = param.value
+                    cleanedIndexedParams[param.id] = param.value !== undefined ? param.value : param.default
                 })
                 node.data.indexed_params = cleanedIndexedParams
             }
@@ -723,9 +726,9 @@ function loadWorkflow(workflow) {
     Object.values(workflow.data).forEach(function (node) {
         var module = all_modules_by_id[node.data.id] || all_triggers_by_id[node.data.id]
         if (!module) {
-            console.error('Tried to add node for unknown module ' + node.data.module_data.id + ' (' + node.id + ')')
+            console.error('Tried to add node for unknown module ' + node.data.id + ' (' + node.id + ')')
             var html = window['dotBlock_error']({
-                error: 'Invalid module id`' + node.data.module_data.id + '` (' + node.id + ')',
+                error: 'Invalid module id`' + node.data.id + '` (' + node.id + ')',
                 data: JSON.stringify(node.data.indexed_params, null, 2)
             })
             editor.addNode(
@@ -771,7 +774,11 @@ function loadWorkflow(workflow) {
     Object.values(workflow.data).forEach(function (node) {
         for (var input_name in node.inputs) {
             node.inputs[input_name].connections.forEach(function (connection) {
-                editor.addConnection(connection.node, node.id, connection.input, input_name)
+                connection.labels = connection.labels === undefined ? [] : connection.labels;
+                var labels = connection.labels.map(function(labelConf) {
+                    return dotBlock_connectionLabel(labelConf)
+                })
+                editor.addConnection(connection.node, node.id, connection.input, input_name, labels)
             })
         }
     })
@@ -868,7 +875,7 @@ function addNodesFromBlueprint(workflowBlueprint, cursorPosition) {
             left: (node.pos_x - minX) * editor.zoom + cursorPosition.left,
         }
         if (all_modules_by_id[node.data.id] === undefined) {
-            var errorMessage = 'Invalid ' + node.data.module_data.module_type + ' module id `' + node.data.module_data.id + '` (' + node.id + ')'
+            var errorMessage = 'Invalid ' + node.data.module_type + ' module id `' + node.data.id + '` (' + node.id + ')'
             var html = window['dotBlock_error']({
                 error: errorMessage,
                 data: JSON.stringify(node.data.indexed_params, null, 2)
@@ -883,20 +890,20 @@ function addNodesFromBlueprint(workflowBlueprint, cursorPosition) {
                 node.data,
                 html
             )
-            return
+        } else {
+            additionalData = {
+                indexed_params: node.data.indexed_params,
+                saved_filters: node.data.saved_filters,
+            }
+            addNode(all_modules_by_id[node.data.id], position, additionalData)
         }
-        additionalData = {
-            indexed_params: node.data.indexed_params,
-            saved_filters: node.data.saved_filters,
-        }
-        addNode(all_modules_by_id[node.data.id], position, additionalData)
         oldNewIDMapping[node.id] = editor.nodeId - 1
         newNodes.push(getNodeHtmlByID(editor.nodeId - 1)) // nodeId is incremented as soon as a new node is created
     })
     workflowBlueprint.data.forEach(function (node) {
         Object.keys(node.outputs).forEach(function (outputName) {
-            var newNode = Object.assign({}, all_modules_by_id[node.data.id])
-            if (newNode.outputs > 0) { // make sure the module configuration didn't change in regards of the outputs
+            var outputCount = all_modules_by_id[node.data.id] !== undefined ? all_modules_by_id[node.data.id].outputs : Object.keys(node.outputs).length
+            if (outputCount > 0) { // make sure the module configuration didn't change in regards of the outputs
                 node.outputs[outputName].connections.forEach(function (connection) {
                     if (oldNewIDMapping[connection.node] !== undefined) {
                         editor.addConnection(
@@ -1213,6 +1220,13 @@ function deleteSelectedNode() {
     editor.removeNodeId(getSelectedNodeID())
 }
 
+function getNodeFromContainedHtml(htmlNode) {
+    var $drawflowNode = $(htmlNode).closest('.drawflow-node')
+    var nodeStringId = $drawflowNode.attr('id')
+    var nodeId = nodeStringId ? parseInt(nodeStringId.split('-')[1]) : null 
+    return nodeId !== null ? editor.getNodeFromId(nodeId) : null
+}
+
 function deleteSelectedNodes(fromDelKey) {
     selection.getSelection().forEach(function(node) {
         if (fromDelKey && getSelectedNodeID() !== null && getSelectedNodeID() == node.id) {
@@ -1335,6 +1349,7 @@ function genNodeParamHtml(node, forNode = true) {
 function afterNodeDrawCallback() {
     var $nodes = $drawflow.find('.drawflow-node')
     $nodes.find('.start-chosen').chosen()
+    toggleDisplayOnFields()
 }
 
 function afterModalShowCallback() {
@@ -1356,6 +1371,34 @@ function afterModalShowCallback() {
             cm.save()
             handleInputChange(cm.getTextArea())
         })
+    })
+}
+
+function toggleDisplayOnFields() {
+    var $nodes = $drawflow.find('.drawflow-node')
+    $nodes.find('div.node-param-container.display-on').each(function() {
+        var $container = $(this)
+        var node = getNodeFromContainedHtml($container)
+        var param_id = $container.attr('param-id')
+        var node_param_config = node.data.module_data.params.filter(function(param_config) {
+            return param_config.id == param_id
+        })
+        var showContainer = false
+        if (node_param_config) {
+            node_param_config = node_param_config[0]
+            Object.keys(node_param_config.display_on).forEach(function(target_param_id) {
+                var target_param_values = node_param_config.display_on[target_param_id]
+                var node_param_value = node.data.indexed_params[target_param_id]
+                if (target_param_values == node_param_value) {
+                    showContainer = true
+                }
+            });
+        }
+        if (showContainer) {
+            $container.show()
+        } else {
+            $container.hide()
+        }
     })
 }
 
@@ -1381,6 +1424,11 @@ function genParameterWarning(options) {
 
 function genSelect(options, forNode = true) {
     var $container = $('<div>')
+        .addClass('node-param-container')
+        .attr('param-id', options.id)
+    if (options.display_on) {
+        $container.addClass('display-on')
+    }
     var $label = $('<label>')
         .css({
             marginLeft: '0.25em',
@@ -1450,6 +1498,11 @@ function genPicker(options, forNode = true) {
 
 function genInput(options, isTextArea, forNode = true) {
     var $container = $('<div>')
+        .addClass('node-param-container')
+        .attr('param-id', options.id)
+    if (options.display_on) {
+        $container.addClass('display-on')
+    }
     var $label = $('<label>')
         .css({
             marginLeft: '0.25em',
@@ -1513,13 +1566,23 @@ function genCheckbox(options, forNode = true) {
     }
     $label.append($input)
     var $container = $('<div>')
+        .addClass('node-param-container')
+        .data('param-id', options.id)
         .addClass('checkbox')
         .append($label)
+    if (options.display_on) {
+        $container.addClass('display-on')
+    }
     return $container
 }
 
 function genRadio(options, forNode = true) {
     var $container = $('<div>')
+        .addClass('node-param-container')
+        .data('param-id', options.id)
+    if (options.display_on) {
+        $container.addClass('display-on')
+    }
     var $rootLabel = $('<label>')
         .css({
             marginLeft: '0.25em',
@@ -1577,6 +1640,7 @@ function handleInputChange(changed) {
     var node = getNodeFromNodeInput($input)
     var node_data = setParamValueForInput($input, node.data)
     editor.updateNodeDataFromId(node.id, node_data)
+    toggleDisplayOnFields()
     invalidateContentCache()
 }
 
@@ -1585,6 +1649,7 @@ function handleSelectChange(changed) {
     var node = getNodeFromNodeInput($input)
     var node_data = setParamValueForInput($input, node.data)
     editor.updateNodeDataFromId(node.id, node_data)
+    toggleDisplayOnFields()
     invalidateContentCache()
 }
 
@@ -1598,6 +1663,9 @@ function saveFilteringForModule() {
             $('<div></div>').addClass('alert alert-danger').text('Some fields cannot be empty')
         )
     } else {
+        if (selector.length == 0 && value.length == 0 && path.length == 0) {
+            operator = ''
+        }
         var node_id = $blockFilteringModal.data('selected-node-id')
         var block = $blockFilteringModal.data('selected-block')
         block.saved_filters = {

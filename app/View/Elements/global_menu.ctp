@@ -2,10 +2,6 @@
     if (!empty($me)) {
         // New approach how to define menu requirements. It takes ACLs from ACLComponent.
         // TODO: Use for every menu item
-        $canAccess = function ($controller, $action) use ($me, $aclComponent) {
-            return $aclComponent->canUserAccess($me, $controller, $action);
-        };
-
         $menu = array(
             array(
                 'type' => 'root',
@@ -23,7 +19,7 @@
                     array(
                         'text' => __('Add Event'),
                         'url' => $baseurl . '/events/add',
-                        'requirement' => $isAclAdd
+                        'requirement' => $this->Acl->canAccess('events', 'add'),
                     ),
                     array(
                         'text' => __('List Attributes'),
@@ -47,7 +43,7 @@
                     array(
                         'url' => $baseurl . '/event_delegations/index/context:pending',
                         'text' => __('View delegation requests'),
-                        'requirement' => $canAccess('event_delegations', 'index'),
+                        'requirement' => $this->Acl->canAccess('event_delegations', 'index'),
                     ),
                     array(
                         'type' => 'separator'
@@ -59,7 +55,7 @@
                     array(
                         'text' => __('Add Tag'),
                         'url' => $baseurl . '/tags/add',
-                        'requirement' => $isAclTagEditor
+                        'requirement' => $this->Acl->canAccess('tags', 'add'),
                     ),
                     array(
                         'text' => __('List Tag Collections'),
@@ -83,7 +79,7 @@
                     array(
                         'text' => __('Automation'),
                         'url' => $baseurl . '/events/automation',
-                        'requirement' => $isAclAuth
+                        'requirement' => $this->Acl->canAccess('events', 'automation'),
                     ),
                     array(
                         'type' => 'separator',
@@ -163,7 +159,7 @@
                     array(
                         'text' => __('Correlation Exclusions'),
 		            	'url' => $baseurl . '/correlation_exclusions/index',
-	            		'requirement' => $canAccess('correlation_exclusions', 'index'),
+	            		'requirement' => $this->Acl->canAccess('correlation_exclusions', 'index'),
                     )
                 )
             ),
@@ -190,7 +186,7 @@
                     array(
                         'text' => __('Organisations'),
                         'url' => $baseurl . '/organisations/index',
-                        'requirement' => $isAclSharingGroup || empty(Configure::read('Security.hide_organisation_index_from_users'))
+                        'requirement' => $this->Acl->canAccess('organisations', 'index'),
                     ),
                     array(
                         'text' => __('Role Permissions'),
@@ -213,17 +209,17 @@
                     array(
                         'text' => __('Add Sharing Group'),
                         'url' => $baseurl . '/sharing_groups/add',
-                        'requirement' => $isAclSharingGroup
+                        'requirement' => $this->Acl->canAccess('sharing_groups', 'add'),
                     ),
                     array(
                         'text' => __('List Sharing Groups Blueprints'),
                         'url' => $baseurl . '/sharing_group_blueprints/index',
-                        'requirement' => $isAclSharingGroup
+                        'requirement' => $this->Acl->canAccess('sharing_group_blueprints', 'index'),
                     ),
                     array(
                         'text' => __('Add Sharing Group Blueprint'),
                         'url' => $baseurl . '/sharing_group_blueprints/add',
-                        'requirement' => $isAclSharingGroup
+                        'requirement' => $this->Acl->canAccess('sharing_group_blueprints', 'add'),
                     ),
                     array(
                         'type' => 'separator'
@@ -257,15 +253,18 @@
                         'url' => $baseurl . '/users/statistics'
                     ),
                     array(
-                        'type' => 'separator'
+                        'type' => 'separator',
+                        'requirement' => $this->Acl->canAccess('threads', 'index'),
                     ),
                     array(
                         'text' => __('List Discussions'),
-                        'url' => $baseurl . '/threads/index'
+                        'url' => $baseurl . '/threads/index',
+                        'requirement' => $this->Acl->canAccess('threads', 'index'),
                     ),
                     array(
                         'text' => __('Start Discussion'),
-                        'url' => $baseurl . '/posts/add'
+                        'url' => $baseurl . '/posts/add',
+                        'requirement' => $this->Acl->canAccess('posts', 'add'),
                     )
                 )
             ),
@@ -282,47 +281,47 @@
                     array(
                         'text' => __('Import Server Settings'),
                         'url' => $baseurl . '/servers/import',
-                        'requirement' => $canAccess('servers', 'import'),
+                        'requirement' => $this->Acl->canAccess('servers', 'import'),
                     ),
                     array(
-                        'text' => __('List Servers'),
+                        'text' => __('Remote Servers'),
                         'url' => $baseurl . '/servers/index',
-                        'requirement' => $canAccess('servers', 'index'),
+                        'requirement' => $this->Acl->canAccess('servers', 'index'),
                     ),
                     array(
-                        'text' => __('List Feeds'),
+                        'text' => __('Feeds'),
                         'url' => $baseurl . '/feeds/index',
-                        'requirement' => $canAccess('feeds', 'index'),
+                        'requirement' => $this->Acl->canAccess('feeds', 'index'),
                     ),
                     array(
                         'text' => __('Search Feed Caches'),
                         'url' => $baseurl . '/feeds/searchCaches',
-                        'requirement' => $canAccess('feeds', 'searchCaches'),
+                        'requirement' => $this->Acl->canAccess('feeds', 'searchCaches'),
                     ),
                     array(
-                        'text' => __('List SightingDB Connections'),
+                        'text' => __('SightingDB'),
                         'url' => $baseurl . '/sightingdb/index',
-                        'requirement' => $canAccess('sightingdb', 'index'),
+                        'requirement' => $this->Acl->canAccess('sightingdb', 'index'),
                     ),
                     array(
-                        'text' => __('Add SightingDB Connection'),
-                        'url' => $baseurl . '/sightingdb/add',
-                        'requirement' => $canAccess('sightingdb', 'add'),
-                    ),
-                    array(
-                        'text' => __('List Communities'),
+                        'text' => __('Communities'),
                         'url' => $baseurl . '/communities/index',
-                        'requirement' => $canAccess('communities', 'index'),
+                        'requirement' => $this->Acl->canAccess('communities', 'index'),
                     ),
                     array(
                         'text' => __('Cerebrates'),
                         'url' => $baseurl . '/cerebrates/index',
-                        'requirement' => $canAccess('cerebrates', 'index'),
+                        'requirement' => $this->Acl->canAccess('cerebrates', 'index'),
+                    ),
+                    array(
+                        'text' => __('List Taxii Servers'),
+                        'url' => $baseurl . '/TaxiiServers/index',
+                        'requirement' => $this->Acl->canAccess('taxiiServers', 'index'),
                     ),
                     array(
                         'text' => __('Event ID translator'),
                         'url' => '/servers/idTranslator',
-                        'requirement' => $canAccess('servers', 'idTranslator')
+                        'requirement' => $this->Acl->canAccess('servers', 'idTranslator')
                     )
                 )
             ),
@@ -351,7 +350,7 @@
                     array(
                         'text' => __('Add User'),
                         'url' => $baseurl . '/admin/users/add',
-                        'requirement' => $canAccess('users', 'admin_add'),
+                        'requirement' => $this->Acl->canAccess('users', 'admin_add'),
                     ),
                     array(
                         'text' => __('Contact Users'),
@@ -360,7 +359,7 @@
                     array(
                         'text' => __('User Registrations'),
                         'url' => $baseurl . '/users/registrations',
-                        'requirement' => $canAccess('users', 'registrations'),
+                        'requirement' => $this->Acl->canAccess('users', 'registrations'),
                     ),
                     array(
                         'type' => 'separator'
@@ -372,7 +371,7 @@
                     array(
                         'text' => __('Add Organisations'),
                         'url' => $baseurl . '/admin/organisations/add',
-                        'requirement' => $canAccess('organisations', 'admin_add'),
+                        'requirement' => $this->Acl->canAccess('organisations', 'admin_add'),
                     ),
                     array(
                         'type' => 'separator'
@@ -397,7 +396,7 @@
                     ),
                     array(
                         'type' => 'separator',
-                        'requirement' => Configure::read('MISP.background_jobs') && $isSiteAdmin
+                        'requirement' => $isSiteAdmin
                     ),
                     array(
                         'text' => __('Jobs'),
@@ -405,22 +404,9 @@
                         'requirement' => Configure::read('MISP.background_jobs') && $isSiteAdmin
                     ),
                     array(
-                        'type' => 'separator',
-                        'requirement' => Configure::read('MISP.background_jobs') && $isSiteAdmin
-                    ),
-                    array(
                         'text' => __('Scheduled Tasks'),
                         'url' => $baseurl . '/tasks',
                         'requirement' => Configure::read('MISP.background_jobs') && $isSiteAdmin
-                    ),
-                    array(
-                        'text' => __('Event Block Rules'),
-                        'url' => $baseurl . '/servers/eventBlockRule',
-                        'requirement' => $isSiteAdmin
-                    ),
-                    array(
-                        'type' => 'separator',
-                        'requirement' => Configure::read('MISP.enableEventBlocklisting') !== false && $isSiteAdmin
                     ),
                     array(
                         'html' => sprintf(
@@ -433,29 +419,20 @@
                     ),
                     array(
                         'type' => 'separator',
-                        'requirement' => Configure::read('MISP.enableEventBlocklisting') !== false && $isSiteAdmin
+                        'requirement' => $isSiteAdmin
                     ),
                     array(
-                        'text' => __('Blocklist Event'),
-                        'url' => $baseurl . '/eventBlocklists/add',
-                        'requirement' => Configure::read('MISP.enableEventBlocklisting') !== false && $isSiteAdmin
+                        'text' => __('Event Block Rules'),
+                        'url' => $baseurl . '/servers/eventBlockRule',
+                        'requirement' => $isSiteAdmin
                     ),
                     array(
-                        'text' => __('Manage Event Blocklists'),
+                        'text' => __('Event Blocklists'),
                         'url' => $baseurl . '/eventBlocklists',
                         'requirement' => Configure::read('MISP.enableEventBlocklisting') !== false && $isSiteAdmin
                     ),
                     array(
-                        'type' => 'separator',
-                        'requirement' => Configure::read('MISP.enableEventBlocklisting') !== false && $isSiteAdmin
-                    ),
-                    array(
-                        'text' => __('Blocklist Organisation'),
-                        'url' => $baseurl . '/orgBlocklists/add',
-                        'requirement' => Configure::read('MISP.enableOrgBlocklisting') !== false && $isSiteAdmin
-                    ),
-                    array(
-                        'text' => __('Manage Org Blocklists'),
+                        'text' => __('Org Blocklists'),
                         'url' => $baseurl . '/orgBlocklists',
                         'requirement' => Configure::read('MISP.enableOrgBlocklisting') !== false && $isSiteAdmin
                     ),
@@ -485,20 +462,26 @@
                 'requirement' => $isAclAudit,
                 'children' => array(
                     array(
-                        'text' => __('List Logs'),
-                        'url' => $baseurl . '/admin/logs/index'
+                        'text' => __('Application Logs'),
+                        'url' => $baseurl . '/logs/index'
                     ),
                     array(
-                        'text' => __('List Audit Logs'),
+                        'text' => __('Audit Logs'),
                         'url' => $baseurl . '/admin/audit_logs/index',
-                        'requirement' => Configure::read('MISP.log_new_audit'),
+                        'requirement' => Configure::read('MISP.log_new_audit') && $isAdmin,
+                    ),
+                    array(
+                        'text' => __('Access Logs'),
+                        'url' => $baseurl . '/admin/access_logs/index',
+                        'requirement' => $isSiteAdmin
                     ),
                     array(
                         'text' => __('Search Logs'),
-                        'url' => $baseurl . '/admin/logs/search'
+                        'url' => $baseurl . '/admin/logs/search',
+                        'requirement' => $isAdmin
                     )
                 )
-                    ),
+            ),
             array(
                 'type' => 'root',
                 'text' => __('API'),
@@ -510,7 +493,7 @@
                     array(
                         'text' => __('REST client'),
                         'url' => $baseurl . '/api/rest',
-                        'requirement' => $canAccess('api', 'rest')
+                        'requirement' => $this->Acl->canAccess('api', 'rest')
                     )
                 )
             )

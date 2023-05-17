@@ -150,12 +150,11 @@ class DashboardsController extends AppController
 
     public function renderWidget($widget_id, $force = false)
     {
+        $user = $this->_closeSession();
+
         if (!$this->request->is('post')) {
             throw new MethodNotAllowedException(__('This endpoint can only be reached via POST requests.'));
         }
-
-        $user = $this->Auth->user();
-        @session_abort(); // allow concurrent AJAX requests (session hold lock by default)
 
         if (empty($this->request->data['data'])) {
             $this->request->data = array('data' => $this->request->data);
@@ -164,27 +163,29 @@ class DashboardsController extends AppController
             throw new MethodNotAllowedException(__('You need to specify the widget to use along with the configuration.'));
         }
         $value = $this->request->data['data'];
-        $valueConfig = json_decode($value['config'], true);
+        $valueConfig = $this->_jsonDecode($value['config']);
         $dashboardWidget = $this->Dashboard->loadWidget($user, $value['widget']);
 
-        $redis = $this->Dashboard->setupRedis();
-        $org_scope = $this->_isSiteAdmin() ? 0 : $user['org_id'];
-        $lookup_hash = hash('sha256', $value['widget'] . $value['config']);
-        $cacheKey = 'misp:dashboard:' . $org_scope . ':' . $lookup_hash;
-        $data = $redis->get($cacheKey);
-        if (!isset($dashboardWidget->cacheLifetime)) {
-            $dashboardWidget->cacheLifetime = false;
-        }
-        if (empty($dashboardWidget->cacheLifetime) || empty($data)) {
-            $data = $dashboardWidget->handler($user, $valueConfig);
-            if (!empty($dashboardWidget->cacheLifetime)) {
-                $redis->setex($cacheKey, $dashboardWidget->cacheLifetime, json_encode(array('data' => $data)));
+        $cacheLifetime = $dashboardWidget->cacheLifetime ?? false;
+        if ($cacheLifetime !== false) {
+            $orgScope = $this->_isSiteAdmin() ? 0 : $user['org_id'];
+            $lookupHash = sha1($value['widget'] . $value['config'], true);
+            $cacheKey = "misp:dashboard:$orgScope:$lookupHash";
+
+            $redis = RedisTool::init();
+            $data = $redis->get($cacheKey);
+            if (!empty($data)) {
+                $data = RedisTool::deserialize($data);
+            } else {
+                $data = $dashboardWidget->handler($user, $valueConfig);
+                $redis->setex($cacheKey, $cacheLifetime, RedisTool::serialize($data));
             }
         } else {
-            $data = json_decode($data, true)['data'];
+            $data = $dashboardWidget->handler($user, $valueConfig);
         }
+        $renderer = method_exists($dashboardWidget, 'getRenderer') ? $dashboardWidget->getRenderer($valueConfig) : $dashboardWidget->render;
         $config = array(
-            'render' => $dashboardWidget->render,
+            'render' => $renderer,
             'autoRefreshDelay' => empty($dashboardWidget->autoRefreshDelay) ? false : $dashboardWidget->autoRefreshDelay,
             'widget_config' => empty($valueConfig['widget_config']) ? array() : $valueConfig['widget_config']
         );
@@ -315,6 +316,8 @@ class DashboardsController extends AppController
     public function listTemplates()
     {
         $conditions = array();
+        // load all widgets for internal use, won't be displayed to the user. Thus we circumvent the ACL on it.
+        $accessible_widgets = array_keys($this->Dashboard->loadAllWidgets($this->Auth->user()));
         if (!$this->_isSiteAdmin()) {
             $permission_flags = array();
             foreach ($this->Auth->user('Role') as $perm => $value) {
@@ -393,6 +396,15 @@ class DashboardsController extends AppController
                 }
                 $element['Dashboard']['widgets'] = array_keys($widgets);
                 sort($element['Dashboard']['widgets']);
+                $temp = [];
+                foreach ($element['Dashboard']['widgets'] as $widget) {
+                    if (in_array($widget, $accessible_widgets)) {
+                        $temp['allow'][] = $widget;
+                    } else {
+                        $temp['deny'][] = $widget;
+                    }
+                }
+                $element['Dashboard']['widgets'] = $temp;
                 if ($element['Dashboard']['user_id'] != $this->Auth->user('id')) {
                     $element['User']['email'] = '';
                 }

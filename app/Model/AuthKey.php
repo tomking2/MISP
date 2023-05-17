@@ -104,6 +104,12 @@ class AuthKey extends AppModel
             if (isset($val['AuthKey']['allowed_ips'])) {
                 $results[$key]['AuthKey']['allowed_ips'] = JsonTool::decode($val['AuthKey']['allowed_ips']);
             }
+            if (isset($val['AuthKey']['unique_ips'])) {
+                $results[$key]['AuthKey']['unique_ips'] = JsonTool::decode($val['AuthKey']['unique_ips']);
+            } else {
+                $results[$key]['AuthKey']['unique_ips'] = [];
+            }
+            
         }
         return $results;
     }
@@ -115,6 +121,13 @@ class AuthKey extends AppModel
                 $this->data['AuthKey']['allowed_ips'] = null;
             } else {
                 $this->data['AuthKey']['allowed_ips'] = JsonTool::encode($this->data['AuthKey']['allowed_ips']);
+            }
+        }
+        if (isset($this->data['AuthKey']['unique_ips'])) {
+            if (empty($this->data['AuthKey']['unique_ips'])) {
+                $this->data['AuthKey']['unique_ips'] = null;
+            } else {
+                $this->data['AuthKey']['unique_ips'] = JsonTool::encode($this->data['AuthKey']['unique_ips']);
             }
         }
         return true;
@@ -162,12 +175,27 @@ class AuthKey extends AppModel
 
         $possibleAuthkeys = $this->find('all', [
             'recursive' => -1,
-            'fields' => ['id', 'authkey', 'user_id', 'expiration', 'allowed_ips', 'read_only'],
+            'fields' => ['id', 'authkey', 'user_id', 'expiration', 'allowed_ips', 'read_only', 'unique_ips'],
             'conditions' => $conditions,
         ]);
         $passwordHasher = $this->getHasher();
         foreach ($possibleAuthkeys as $possibleAuthkey) {
-            if ($passwordHasher->check($authkey, $possibleAuthkey['AuthKey']['authkey'])) {
+            if ($passwordHasher->check($authkey, $possibleAuthkey['AuthKey']['authkey'])) {  // valid authkey
+                // store IP in db if not there yet
+                $remote_ip = $this->_remoteIp();
+                $update_db_ip = true;
+                if (in_array($remote_ip, $possibleAuthkey['AuthKey']['unique_ips'])) {
+                    $update_db_ip = false;  // IP already seen, skip saving in DB
+                } else {   // first time this IP is seen for this API key
+                    $possibleAuthkey['AuthKey']['unique_ips'][] = $remote_ip;
+                }
+                if ($update_db_ip) {
+                    // prevent double entries due to race condition
+                    $possibleAuthkey['AuthKey']['unique_ips'] = array_unique($possibleAuthkey['AuthKey']['unique_ips']);
+                    // save in db
+                    $this->save($possibleAuthkey, ['fieldList' => ['unique_ips']]);
+                }
+                // fetch user
                 $user = $this->User->getAuthUser($possibleAuthkey['AuthKey']['user_id']);
                 if ($user) {
                     $user = $this->setUserData($user, $possibleAuthkey);
@@ -205,10 +233,11 @@ class AuthKey extends AppModel
     /**
      * @param int $userId
      * @param int|null $keyId
+     * @param string|null $authKey
      * @return false|string
      * @throws Exception
      */
-    public function resetAuthKey($userId, $keyId = null)
+    public function resetAuthKey($userId, $keyId = null, $authKey = null)
     {
         $time = time();
 
@@ -229,7 +258,7 @@ class AuthKey extends AppModel
             }
             $comment = __("Created by resetting auth key %s\n%s", $keyId, $currentAuthkey['AuthKey']['comment']);
             $allowedIps = isset($currentAuthkey['AuthKey']['allowed_ips']) ? $currentAuthkey['AuthKey']['allowed_ips'] : [];
-            return $this->createnewkey($userId, $comment, $allowedIps);
+            return $this->createnewkey($userId, $authKey, $comment, $allowedIps);
         } else {
             $existingAuthkeys = $this->find('all', [
                 'recursive' => -1,
@@ -245,21 +274,25 @@ class AuthKey extends AppModel
                 $key['AuthKey']['expiration'] = $time;
                 $this->save($key);
             }
-            return $this->createnewkey($userId);
+            return $this->createnewkey($userId, $authKey);
         }
     }
 
     /**
      * @param int $userId
+     * @param string|null $authKey
      * @param string $comment
      * @param array $allowedIps
      * @return false|string
      * @throws Exception
      */
-    public function createnewkey($userId, $comment = '', array $allowedIps = [])
+    public function createnewkey($userId, $authKey = null, $comment = '', array $allowedIps = [])
     {
+        if(empty($authKey)) {
+            $authKey = (new RandomTool())->random_str(true, 40);
+        }
         $newKey = [
-            'authkey' => (new RandomTool())->random_str(true, 40),
+            'authkey' => $authKey,
             'user_id' => $userId,
             'comment' => $comment,
             'allowed_ips' => empty($allowedIps) ? null : $allowedIps,
@@ -279,7 +312,7 @@ class AuthKey extends AppModel
      */
     public function getKeyUsage($id)
     {
-        $redis = $this->setupRedisWithException();
+        $redis = RedisTool::init();
         $data = $redis->hGetAll("misp:authkey_usage:$id");
 
         $output = [];
@@ -309,7 +342,7 @@ class AuthKey extends AppModel
      */
     public function getLastUsageForKeys(array $ids)
     {
-        $redis = $this->setupRedisWithException();
+        $redis = RedisTool::init();
         $keys = array_map(function($id) {
             return "misp:authkey_last_usage:$id";
         }, $ids);
@@ -353,6 +386,22 @@ class AuthKey extends AppModel
     public function userExists(array $check)
     {
         return $this->User->hasAny(['id' => $check['user_id']]);
+    }
+
+    /**
+     * Check if given user has valid advanced auth key.
+     * @param int $userId
+     * @return bool
+     */
+    public function userHasAuthKey($userId)
+    {
+        return $this->hasAny([
+            'user_id' => $userId,
+            'OR' => [
+                'expiration >' => time(),
+                'expiration' => 0
+            ],
+        ]);
     }
 
     /**

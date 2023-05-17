@@ -53,6 +53,7 @@ class AuditLogsController extends AppController
         'News',
         'Warninglist',
         'Workflow',
+        'WorkflowBlueprint',
     ];
 
     public $paginate = [
@@ -99,7 +100,9 @@ class AuditLogsController extends AppController
         if ($this->_isRest()) {
             $this->paginate['fields'][] = 'request_id';
         }
-
+        if (!Configure::read('MISP.log_new_audit')) {
+            $this->Flash->warning(__("Audit log is not enabled. See 'MISP.log_new_audit' in the Server Settings. (Administration -> Server Settings -> MISP tab)"));
+        }
         $params = $this->IndexFilter->harvestParameters([
             'ip',
             'user',
@@ -189,10 +192,13 @@ class AuditLogsController extends AppController
             $list[$k]['AuditLog']['action_human'] = $this->actions[$item['AuditLog']['action']];
         }
 
-        $this->set('list', $list);
+        $this->set('data', $list);
         $this->set('event', $event);
         $this->set('mayModify', $this->__canModifyEvent($event));
-        $this->set('title_for_layout', __('Audit logs for event #%s', $event['Event']['id']));
+        $this->set('menuData', [
+            'menuList' => 'event',
+            'menuItem' => 'eventLog'
+        ]);
     }
 
     public function fullChange($id)
