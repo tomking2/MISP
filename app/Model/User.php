@@ -214,6 +214,7 @@ class User extends AppModel
         ),
         'Post',
         'UserSetting',
+        'UserLoginProfile'
         // 'AuthKey' - readd once the initial update storm is over
     );
 
@@ -261,6 +262,16 @@ class User extends AppModel
         }
         if (empty($user['nids_sid'])) {
             $user['nids_sid'] = mt_rand(1000000, 9999999);
+        }
+        if (!empty(Configure::read('Security.limit_site_admins_to_host_org'))){
+            if (!empty($user['role_id']) and !empty($user['org_id'] and $user['org_id'] != Configure::read('MISP.host_org_id'))){
+                $role = $this->Role->find('first', array(
+                    'conditions' => array('Role.id' => $user['role_id'])
+                ));
+                if (!empty($role) and $role['Role']['perm_site_admin'] === true){
+                    $this->invalidate('role_id', "Site admin roles can only be assigned to users of the host org on this instance.");
+                }
+            }
         }
         return true;
     }
@@ -845,6 +856,10 @@ class User extends AppModel
      */
     public function sendEmail(array $user, $body, $bodyNoEnc = false, $subject, $replyToUser = false)
     {
+        if (Configure::read('MISP.disable_emailing')) {
+            return true;
+        }
+
         if ($user['User']['disabled'] || !$this->checkIfUserIsValid($user['User'])) {
             return true;
         }
@@ -860,7 +875,7 @@ class User extends AppModel
         } catch (SendEmailException $e) {
             $this->logException("Exception during sending e-mail", $e);
             $log->create();
-            $log->save(array(
+            $log->saveOrFailSilently(array(
                 'org' => 'SYSTEM',
                 'model' => 'User',
                 'model_id' => $user['User']['id'],
@@ -877,7 +892,7 @@ class User extends AppModel
         $logTitle .= $replyToLog  . '  to ' . $user['User']['email'] . ' sent, titled "' . $result['subject'] . '".';
 
         $log->create();
-        $log->save(array(
+        $log->saveOrFailSilently(array(
             'org' => 'SYSTEM',
             'model' => 'User',
             'model_id' => $user['User']['id'],
@@ -980,6 +995,7 @@ class User extends AppModel
         if ($result) {
             $this->id = $user['User']['id'];
             $this->saveField('password', $password);
+            $this->saveField('last_pw_change', time());
             $this->updateField($user['User'], 'change_pw', 1);
             if ($simpleReturn) {
                 return true;
@@ -1023,6 +1039,27 @@ class User extends AppModel
         ));
         $conditions = array(
             'User.org_id' => $org_id,
+            'User.disabled' => 0,
+            'User.role_id' => $adminRoles
+        );
+        if ($excludeUserId) {
+            $conditions['User.id !='] = $excludeUserId;
+        }
+        return $this->find('list', array(
+            'recursive' => -1,
+            'conditions' => $conditions,
+            'fields' => array(
+                'User.id', 'User.email'
+            )
+        ));
+    }
+
+    public function getSiteAdmins($excludeUserId = false) {
+        $adminRoles = $this->Role->find('column', array(
+            'conditions' => array('perm_site_admin' => 1),
+            'fields' => array('Role.id')
+        ));
+        $conditions = array(
             'User.disabled' => 0,
             'User.role_id' => $adminRoles
         );
@@ -1229,6 +1266,15 @@ class User extends AppModel
 
     public function extralog($user, $action = null, $description = null, $fieldsResult = null, $modifiedUser = null)
     {
+        if (!is_array($user) && $user === 'SYSTEM') {
+            $user = [
+                'id' => 0,
+                'email' => 'SYSTEM',
+                'Organisation' => [
+                    'name' => 'SYSTEM'
+                ]
+            ];
+        }
         // new data
         $model = 'User';
         $modelId = $user['id'];
@@ -1237,6 +1283,7 @@ class User extends AppModel
         }
         if ($action == 'login') {
             $description = "User (" . $user['id'] . "): " . $user['email'];
+            $fieldsResult = json_encode($this->UserLoginProfile->_getUserProfile());
         } elseif ($action == 'logout') {
             $description = "User (" . $user['id'] . "): " . $user['email'];
         } elseif ($action == 'edit') {
@@ -1363,7 +1410,7 @@ class User extends AppModel
                 $error[$key] = $key . ': ' . implode(', ', $errors);
             }
             $error = implode(PHP_EOL, $error);
-            $this->Log->save(array(
+            $this->Log->saveOrFailSilently(array(
                     'org' => 'SYSTEM',
                     'model' => 'User',
                     'model_id' => $added_by['id'],
@@ -1378,7 +1425,7 @@ class User extends AppModel
                 'recursive' => -1,
                 'conditions' => array('id' => $this->id)
             ));
-            $this->Log->save(array(
+            $this->Log->saveOrFailSilently(array(
                 'org' => 'SYSTEM',
                 'model' => 'User',
                 'model_id' => $added_by['id'],
@@ -1414,6 +1461,8 @@ class User extends AppModel
 
     /**
      * Updates `last_api_access` time in database.
+     * Always update when MISP.store_api_access_time is set.
+     * Only update every hour when it isn't set
      *
      * @param array $user
      * @return array|bool
@@ -1424,8 +1473,11 @@ class User extends AppModel
         if (!isset($user['id'])) {
             throw new InvalidArgumentException("Invalid user object provided.");
         }
-        $user['last_api_access'] = time();
-        return $this->save($user, true, array('id', 'last_api_access'));
+        $storeAPITime = Configure::read('MISP.store_api_access_time');
+        if ((!empty($storeAPITime) && $storeAPITime) || $user['last_api_access'] < time() - 60*60) {
+            $user['last_api_access'] = time();
+            return $this->save($user, true, array('id', 'last_api_access'));
+        }
     }
 
     /**
@@ -1702,10 +1754,10 @@ class User extends AppModel
      * @param string $period
      * @return array
      */
-    private function getUsablePeriodicSettingForUser(array $period_filters, $period='daily'): array
+    private function getUsablePeriodicSettingForUser(array $period_filters, $period='daily', $lastdays=7): array
     {
         $filters = [
-            'last' => $this->__genTimerangeFilter($period),
+            'last' => $this->__genTimerangeFilter($period, $lastdays),
             'published' => true,
         ];
         if (!empty($period_filters['orgc_id'])) {
@@ -1798,11 +1850,12 @@ class User extends AppModel
      * @throws InvalidArgumentException
      * @throws JsonException
      */
-    public function generatePeriodicSummary(int $userId, string $period, $rendered = true)
+    public function generatePeriodicSummary(int $userId, string $period, $rendered = true, $lastdays=7)
     {
         $allowedPeriods = array_map(function($period) {
             return substr($period, strlen('notification_'));
         }, self::PERIODIC_NOTIFICATIONS);
+        $allowedPeriods[] = 'custom';
         if (!in_array($period, $allowedPeriods, true)) {
             throw new InvalidArgumentException(__('Invalid period. Must be one of %s', JsonTool::encode(self::PERIODIC_NOTIFICATIONS)));
         }
@@ -1810,7 +1863,7 @@ class User extends AppModel
         $user = $this->getAuthUser($userId);
         App::import('Tools', 'SendEmail');
         $periodicSettings = $this->fetchPeriodicSettingForUser($userId, true);
-        $filters = $this->getUsablePeriodicSettingForUser($periodicSettings, $period);
+        $filters = $this->getUsablePeriodicSettingForUser($periodicSettings, $period, $lastdays);
         $filtersForRestSearch = $filters; // filters for restSearch are slightly different than fetchEvent
         $filters['last'] = $this->resolveTimeDelta($filters['last']);
         $filters['sgReferenceOnly'] = true;
@@ -1840,7 +1893,7 @@ class User extends AppModel
         $finalContext = JsonTool::decode($finalContext->intoString());
         $aggregated_context = $this->__renderAggregatedContext($finalContext);
         $rollingWindows = $periodicSettings['trending_period_amount'] ?: 2;
-        $trendAnalysis = $this->Event->getTrendsForTagsFromEvents($events, $this->periodToDays($period), $rollingWindows, $periodicSettings['trending_for_tags']);
+        $trendAnalysis = $this->Event->getTrendsForTagsFromEvents($events, $this->periodToDays($period, $lastdays), $rollingWindows, $periodicSettings['trending_for_tags']);
         $tagFilterPrefixes = $periodicSettings['trending_for_tags'] ?: array_keys($trendAnalysis['all_tags']);
         $trendData = [
             'trendAnalysis' => $trendAnalysis,
@@ -1852,12 +1905,13 @@ class User extends AppModel
         ];
         $security_recommendations = $this->__renderSecurityRecommendations($securityRecommendationsData);
 
-        $emailTemplate = $this->prepareEmailTemplate($period);
+        $templateName = $period == 'custom' ? 'daily' : $period;
+        $emailTemplate = $this->prepareEmailTemplate($templateName);
         $emailTemplate->set('baseurl', $this->Event->__getAnnounceBaseurl());
         $emailTemplate->set('events', $events);
         $emailTemplate->set('filters', $filters);
         $emailTemplate->set('periodicSettings', $periodicSettings);
-        $emailTemplate->set('period_days', $this->periodToDays($period));
+        $emailTemplate->set('period_days', $this->periodToDays($period, $lastdays));
         $emailTemplate->set('period', $period);
         $emailTemplate->set('aggregated_context', $aggregated_context);
         $emailTemplate->set('trending_summary', $trending_summary);
@@ -1923,13 +1977,19 @@ class User extends AppModel
         }
         return $filters;
     }
-    private function __genTimerangeFilter(string $period='daily'): string
+    private function __genTimerangeFilter(string $period='daily', $lastdays = 7): string
     {
+        if ($period == 'custom') {
+            return strval($lastdays) . 'd';
+        }
         return $this->periodToDays($period) . 'd';
     }
 
-    private function periodToDays(string $period='daily'): int
+    private function periodToDays(string $period='daily', $lastdays = false): int
     {
+        if ($lastdays !== false) {
+            return $lastdays;
+        }
         if ($period === 'daily') {
             return 1;
         } else if ($period === 'weekly') {
@@ -2001,5 +2061,90 @@ class User extends AppModel
             }
         }
         return false;
+    }
+
+    public function forgotRouter($email, $ip)
+    {
+        if (Configure::read('MISP.background_jobs')) {
+            /** @var Job $job */
+            $job = ClassRegistry::init('Job');
+            $dummyUser = [
+                'email' => 'SYSTEM',
+                'org_id' => 0,
+                'role_id' => 0
+            ];
+            $jobId = $job->createJob($dummyUser, Job::WORKER_EMAIL, 'forgot_password', $email, 'Sending...');
+
+            $args = [
+                'jobForgot',
+                $email,
+                $ip,
+                $jobId,
+            ];
+
+            $this->getBackgroundJobsTool()->enqueue(
+                BackgroundJobsTool::EMAIL_QUEUE,
+                BackgroundJobsTool::CMD_ADMIN,
+                $args,
+                true,
+                $jobId
+            );
+
+            return true;
+        } else {
+            return $this->forgot($email);
+        }
+    }
+
+    public function forgot($email, $ip, $jobId = null)
+    {
+        $user = $this->find('first', [
+            'recursive' => -1,
+            'conditions' => [
+                'User.email' => $email,
+                'User.disabled' => 0
+            ]
+        ]);
+        if (empty($user)) {
+            return false;
+        }
+        $redis = $this->setupRedis();
+        $token = RandomTool::random_str(true, 40, '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ');
+        $redis->set('misp:forgot:' . $token, $user['User']['id'], ['nx', 'ex' => 600]);
+        $baseurl = Configure::check('MISP.external_baseurl') ? Configure::read('MISP.external_baseurl') : Configure::read('MISP.baseurl');
+        $body = __(
+            "Dear MISP user,\n\nyou have requested a password reset on the MISP instance at %s. Click the link below to change your password.\n\n%s\n\nThe link above is only valid for 10 minutes, feel free to request a new one if it has expired.\n\nIf you haven't requested a password reset, reach out to your admin team and let them know that someone has attempted it in your stead.\n\nMake sure you keep the contents of this e-mail confidential, do NOT ever forward it as it contains a reset token that is equivalent of a password if acted upon. The IP used to trigger the request was: %s\n\nBest regards,\nYour MISP admin team",
+            $baseurl,
+            $baseurl . '/users/password_reset/' . $token,
+            $ip
+        );
+        $bodyNoEnc = __(
+            "Dear MISP user,\n\nyou have requested a password reset on the MISP instance at %s, however, no valid encryption key was found for your user and thus we cannot deliver your reset token. Please get in touch with your org admin / with an instance site admin to ask for a reset.\n\nThe IP used to trigger the request was: %s\n\nBest regards,\nYour MISP admin team",
+            $baseurl,
+            $ip
+        );
+        $this->sendEmail($user, $body, $bodyNoEnc, __('MISP password reset'));
+        return true;
+    }
+
+    public function fetchForgottenPasswordUser($token)
+    {
+        if (!ctype_alnum($token)) {
+            return false;
+        }
+        $redis = $this->setupRedis();
+        $userId = $redis->get('misp:forgot:' . $token);
+        if (empty($userId)) {
+            return false;
+        }
+        $user = $this->getAuthUser($userId, true);
+        return $user;
+    }
+
+    public function purgeForgetToken($token)
+    {
+        $redis = $this->setupRedis();
+        $userId = $redis->del('misp:forgot:' . $token);
+        return true;
     }
 }

@@ -66,7 +66,8 @@ class SightingsController extends AppController
                 $filters = !empty($this->request->data['filters']) ? $this->request->data['filters'] : false;
             }
             if (!$error) {
-                $result = $this->Sighting->saveSightings($id, $values, $timestamp, $this->Auth->user(), $type, $source, false, true, false, $filters);
+                $publish_sighting = !empty(Configure::read('Sightings_enable_realtime_publish'));
+                $result = $this->Sighting->saveSightings($id, $values, $timestamp, $this->Auth->user(), $type, $source, false, $publish_sighting, false, $filters);
             }
             if (!is_numeric($result)) {
                 $error = $result;
@@ -116,6 +117,23 @@ class SightingsController extends AppController
                 $this->render('ajax/add_sighting');
             }
         }
+    }
+
+    public function view($idOrUUID)
+    {
+        $sighting = $this->Sighting->find('first', array(
+            'conditions' => Validation::uuid($idOrUUID) ? ['Sighting.uuid' => $idOrUUID] : ['Sighting.id' => $idOrUUID],
+            'recursive' => -1,
+            'fields' => ['id', 'attribute_id'],
+        ));
+        $sightings = [];
+        if (!empty($sighting)) {
+            $sightings = $this->Sighting->listSightings($this->Auth->user(), $sighting['Sighting']['attribute_id'], 'attribute');
+        }
+        if (empty($sightings)) {
+            throw new NotFoundException('Invalid sighting.');
+        }
+        return $this->RestResponse->viewData($sightings[0]);
     }
 
     public function advanced($id, $context = 'attribute')

@@ -1,5 +1,5 @@
 <?php
-App::uses('AppController', 'Controller');
+App::uses('AppController', 'Controller', 'OTPHP\TOTP');
 
 /**
  * @property User $User
@@ -29,7 +29,11 @@ class UsersController extends AppController
         parent::beforeFilter();
 
         // what pages are allowed for non-logged-in users
-        $allowedActions = array('login', 'logout', 'getGpgPublicKey', 'logout401');
+        $allowedActions = array('login', 'logout', 'getGpgPublicKey', 'logout401', 'otp');
+        if (!empty(Configure::read('Security.allow_password_forgotten'))) {
+            $allowedActions[] = 'forgot';
+            $allowedActions[] = 'password_reset';
+        }
         if(!empty(Configure::read('Security.email_otp_enabled'))) {
           $allowedActions[] = 'email_otp';
         }
@@ -88,6 +92,7 @@ class UsersController extends AppController
             unset($user['User']['authkey']);
         }
         $user['User']['password'] = '*****';
+        $user['User']['totp'] = '*****';
         $temp = [];
         $objectsToInclude = array('User', 'Role', 'UserSetting', 'Organisation');
         foreach ($objectsToInclude as $objectToInclude) {
@@ -261,6 +266,78 @@ class UsersController extends AppController
         $this->set('canFetchPgpKey', $this->__canFetchPgpKey());
     }
 
+    private function __pw_change($user, $source, &$abortPost, $token = false, $skip_password_confirmation = false)
+    {
+        if (!isset($this->request->data['User'])) {
+            $this->request->data = array('User' => $this->request->data);
+        }
+        if (Configure::read('Security.require_password_confirmation') && !$skip_password_confirmation) {
+            if (!empty($this->request->data['User']['current_password'])) {
+                $hashed = $this->User->verifyPassword($this->Auth->user('id'), $this->request->data['User']['current_password']);
+                if (!$hashed) {
+                    $message = __('Invalid password. Please enter your current password to continue.');
+                    if ($this->_isRest()) {
+                        return $this->RestResponse->saveFailResponse('Users', $source, false, $message, $this->response->type());
+                    }
+                    $abortPost = true;
+                    $this->Flash->error($message);
+                }
+                unset($this->request->data['User']['current_password']);
+            } else if (!$this->_isRest()) {
+                $message = __('Please enter your current password to continue.');
+                if ($this->_isRest()) {
+                    return $this->RestResponse->saveFailResponse('Users', $source, false, $message, $this->response->type());
+                }
+                $abortPost = true;
+                $this->Flash->info($message);
+            }
+        }
+        $hashed = $this->User->verifyPassword($this->Auth->user('id'), $this->request->data['User']['password']);
+        if ($hashed) {
+            $message = __('Submitted new password cannot be the same as the current one');
+            $abortPost = true;
+        }
+        if (!$abortPost) {
+            // What fields should be saved (allowed to be saved)
+            $user['User']['change_pw'] = 0;
+            $user['User']['password'] = $this->request->data['User']['password'];
+            $user['User']['last_pw_change'] = time();
+            if ($this->_isRest()) {
+                $user['User']['confirm_password'] = $this->request->data['User']['password'];
+            } else {
+                $user['User']['confirm_password'] = $this->request->data['User']['confirm_password'];
+            }
+            $temp = $user['User']['password'];
+            // Save the data
+            if ($this->User->save($user)) {
+                if ($token) {
+                    $this->User->purgeForgetToken($token);
+                }
+                $message = __('Password Changed.');
+                // log as System if the reset comes from an unauthed user using password_reset tokens
+                $logUser = empty($this->Auth->user()) ? 'SYSTEM' : $this->Auth->user();
+                $this->User->extralog($logUser, $source, null, null, $user);
+                if ($this->_isRest()) {
+                    return $this->RestResponse->saveSuccessResponse('User', $source, false, $this->response->type(), $message);
+                }
+                $this->Flash->success($message);
+                $this->redirect(array('action' => 'view', $user['User']['id']));
+            } else {
+                $message = __('The password could not be updated. Make sure you meet the minimum password length / complexity requirements.');
+                if ($this->_isRest()) {
+                    return $this->RestResponse->saveFailResponse('Users', $source, false, $message, $this->response->type());
+                }
+                $this->Flash->error($message);
+            }
+        } else {
+            if ($this->_isRest()) {
+                return $this->RestResponse->saveFailResponse('Users', $source, false, $message, $this->response->type());
+            } else {
+                $this->Flash->error($message);
+            }
+        }
+    }
+
     public function change_pw()
     {
         $id = $this->Auth->user('id');
@@ -269,69 +346,8 @@ class UsersController extends AppController
             'recursive' => -1
         ));
         if ($this->request->is('post') || $this->request->is('put')) {
-            if (!isset($this->request->data['User'])) {
-                $this->request->data = array('User' => $this->request->data);
-            }
             $abortPost = false;
-            if (Configure::read('Security.require_password_confirmation')) {
-                if (!empty($this->request->data['User']['current_password'])) {
-                    $hashed = $this->User->verifyPassword($this->Auth->user('id'), $this->request->data['User']['current_password']);
-                    if (!$hashed) {
-                        $message = __('Invalid password. Please enter your current password to continue.');
-                        if ($this->_isRest()) {
-                            return $this->RestResponse->saveFailResponse('Users', 'change_pw', false, $message, $this->response->type());
-                        }
-                        $abortPost = true;
-                        $this->Flash->error($message);
-                    }
-                    unset($this->request->data['User']['current_password']);
-                } else if (!$this->_isRest()) {
-                    $message = __('Please enter your current password to continue.');
-                    if ($this->_isRest()) {
-                        return $this->RestResponse->saveFailResponse('Users', 'change_pw', false, $message, $this->response->type());
-                    }
-                    $abortPost = true;
-                    $this->Flash->info($message);
-                }
-            }
-            $hashed = $this->User->verifyPassword($this->Auth->user('id'), $this->request->data['User']['password']);
-            if ($hashed) {
-                $message = __('Submitted new password cannot be the same as the current one');
-                $abortPost = true;
-            }
-            if (!$abortPost) {
-                // What fields should be saved (allowed to be saved)
-                $user['User']['change_pw'] = 0;
-                $user['User']['password'] = $this->request->data['User']['password'];
-                if ($this->_isRest()) {
-                    $user['User']['confirm_password'] = $this->request->data['User']['password'];
-                } else {
-                    $user['User']['confirm_password'] = $this->request->data['User']['confirm_password'];
-                }
-                $temp = $user['User']['password'];
-                // Save the data
-                if ($this->User->save($user)) {
-                    $message = __('Password Changed.');
-                    $this->User->extralog($this->Auth->user(), "change_pw", null, null, $user);
-                    if ($this->_isRest()) {
-                        return $this->RestResponse->saveSuccessResponse('User', 'change_pw', false, $this->response->type(), $message);
-                    }
-                    $this->Flash->success($message);
-                    $this->redirect(array('action' => 'view', $id));
-                } else {
-                    $message = __('The password could not be updated. Make sure you meet the minimum password length / complexity requirements.');
-                    if ($this->_isRest()) {
-                        return $this->RestResponse->saveFailResponse('Users', 'change_pw', false, $message, $this->response->type());
-                    }
-                    $this->Flash->error($message);
-                }
-            } else {
-                if ($this->_isRest()) {
-                    return $this->RestResponse->saveFailResponse('Users', 'change_pw', false, $message, $this->response->type());
-                } else {
-                    $this->Flash->error($message);
-                }
-            }
+            return $this->__pw_change($user, 'change_pw', $abortPost);
         }
         if ($this->_isRest()) {
             return $this->RestResponse->describe('Users', 'change_pw', false, $this->response->type());
@@ -403,8 +419,7 @@ class UsersController extends AppController
                                         'OR' => array(
                                             'UPPER(User.email) LIKE' => $searchValue,
                                             'UPPER(Organisation.name) LIKE' => $searchValue,
-                                            'UPPER(Role.name) LIKE' => $searchValue,
-                                            'UPPER(User.authkey) LIKE' => $searchValue,
+                                            'UPPER(Role.name) LIKE' => $searchValue
                                         ),
                                     );
                                 } else {
@@ -415,6 +430,12 @@ class UsersController extends AppController
                         if (!empty($test)) {
                             $this->paginate['conditions']['AND'][] = $test;
                         }
+                    }
+                } elseif ("inactive" == $searchTerm) {
+                    if ($v == "1") {
+                        $this->paginate['conditions']['AND'][] = array('User.last_login <' =>  time() - 60*60*24*30);  // older than a month 
+                        $this->paginate['conditions']['AND'][] = array('User.current_login <' =>  time() - 60*60*24*30);  // older than a month 
+                        $this->paginate['conditions']['AND'][] = array('User.last_api_access <' =>  time() - 60*60*24*30);  // older than a month 
                     }
                 }
                 $passedArgsArray[$searchTerm] = $v;
@@ -454,7 +475,8 @@ class UsersController extends AppController
                     'last_api_access',
                     'force_logout',
                     'date_created',
-                    'date_modified'
+                    'date_modified',
+                    'last_pw_change'
                 ),
                 'contain' => array(
                     'Organisation' => array('id', 'name'),
@@ -493,7 +515,7 @@ class UsersController extends AppController
     public function admin_filterUserIndex()
     {
         $passedArgsArray = array();
-        $booleanFields = array('autoalert', 'contactalert', 'termsaccepted', 'disabled');
+        $booleanFields = array('autoalert', 'contactalert', 'termsaccepted', 'disabled', 'inactive');
         $textFields = array('role', 'email');
         if (empty(Configure::read('Security.advanced_authkeys'))) {
             $textFields[] = 'authkey';
@@ -565,7 +587,7 @@ class UsersController extends AppController
     {
         $user = $this->User->find('first', array(
             'recursive' => -1,
-            'conditions' => $this->__adminFetchConditions($id),
+            'conditions' => $this->__adminFetchConditions($id, $edit=False),
             'contain' => [
                 'UserSetting',
                 'Role',
@@ -588,17 +610,7 @@ class UsersController extends AppController
             unset($user['User']['authkey']);
         }
         if ($this->_isRest()) {
-            $user['User']['password'] = '*****';
-            $temp = array();
-            foreach ($user['UserSetting'] as $v) {
-                $temp[$v['setting']] = $v['value'];
-            }
-            $user['UserSetting'] = $temp;
-            return $this->RestResponse->viewData(array(
-                'User' => $user['User'],
-                'Role' => $user['Role'],
-                'UserSetting' => $user['UserSetting']
-            ), $this->response->type());
+            return $this->RestResponse->viewData($this->__massageUserObject($user), $this->response->type());
         }
         $this->set('user', $user);
 
@@ -676,6 +688,7 @@ class UsersController extends AppController
                 }
             }
             $this->request->data['User']['date_created'] = time();
+            $this->request->data['User']['last_pw_change'] = $this->request->data['User']['date_created'];
             if (!array_key_exists($this->request->data['User']['role_id'], $syncRoles)) {
                 $this->request->data['User']['server_id'] = 0;
             }
@@ -747,7 +760,7 @@ class UsersController extends AppController
                         $this->Flash->error(__('The user could not be saved. Invalid organisation.'));
                     }
                 } else {
-                    $fieldList = array('password', 'email', 'external_auth_required', 'external_auth_key', 'enable_password', 'confirm_password', 'org_id', 'role_id', 'authkey', 'nids_sid', 'server_id', 'gpgkey', 'certif_public', 'autoalert', 'contactalert', 'disabled', 'invited_by', 'change_pw', 'termsaccepted', 'newsread', 'date_created', 'date_modified');
+                    $fieldList = array('password', 'email', 'external_auth_required', 'external_auth_key', 'enable_password', 'confirm_password', 'org_id', 'role_id', 'authkey', 'nids_sid', 'server_id', 'gpgkey', 'certif_public', 'autoalert', 'contactalert', 'disabled', 'invited_by', 'change_pw', 'termsaccepted', 'newsread', 'date_created', 'date_modified', 'last_pw_change');
                     if ($this->User->save($this->request->data, true, $fieldList)) {
                         $notification_message = '';
                         if (!empty($this->request->data['User']['notify'])) {
@@ -854,9 +867,6 @@ class UsersController extends AppController
             // MISP automatically chooses the first available option for the user as the selected setting (usually user)
             // Org admin is downgraded to a user
             // Now we make an exception for the already assigned role, both in the form and the actual edit.
-            if (!empty($userToEdit['Role']['perm_site_admin'])) {
-                throw new NotFoundException(__('Invalid user'));
-            }
             $allowedRole = $userToEdit['User']['role_id'];
             $params = array('conditions' => array(
                     'OR' => array(
@@ -945,6 +955,8 @@ class UsersController extends AppController
                     $this->__canChangePassword()
                 ) {
                     $fields[] = 'password';
+                    $fields[] = 'last_pw_change';
+                    $this->request->data['User']['last_pw_change'] = time();
                     if ($this->_isRest() && !isset($this->request->data['User']['confirm_password'])) {
                         $this->request->data['User']['confirm_password'] = $this->request->data['User']['password'];
                         $fields[] = 'confirm_password';
@@ -1089,7 +1101,8 @@ class UsersController extends AppController
         if ($this->request->is('post') || $this->request->is('delete')) {
             $user = $this->User->find('first', array(
                 'conditions' => $this->__adminFetchConditions($id),
-                'recursive' => -1
+                'recursive' => -1,
+                'contain' => array('Role')
             ));
             if (empty($user)) {
                 throw new NotFoundException(__('Invalid user'));
@@ -1129,6 +1142,7 @@ class UsersController extends AppController
                 'conditions' => $this->__adminFetchConditions($ids),
                 'recursive' => -1,
                 'fields' => ['id', $fieldName],
+                'contain' => array('Role')
             ]);
             if (empty($users)) {
                 throw new NotFoundException(__('Invalid users'));
@@ -1186,18 +1200,30 @@ class UsersController extends AppController
                     throw new ForbiddenException('You have reached the maximum number of login attempts. Please wait ' . $expire . ' seconds and try again.');
                 }
             }
-            // Check the length of the user's authkey match old format. This can be removed in future.
-            $userPass = $this->User->find('first', [
+            $unauth_user = $this->User->find('first', [
                 'conditions' => ['User.email' => $this->request->data['User']['email']],
-                'fields' => ['User.password'],
+                'fields' => ['User.password', 'User.totp', 'User.hotp_counter'],
                 'recursive' => -1,
             ]);
-            if (!empty($userPass) && strlen($userPass['User']['password']) === 40) {
-                $oldHash = true;
-                unset($this->Auth->authenticate['Form']['passwordHasher']); // use default password hasher
-                $this->Auth->constructAuthenticate();
+            if ($unauth_user) {
+                // Check the length of the user's authkey match old format. This can be removed in future.
+                $userPass = $unauth_user['User']['password'];
+                if (!empty($userPass) && strlen($userPass) === 40) {
+                    $oldHash = true;
+                    unset($this->Auth->authenticate['Form']['passwordHasher']); // use default password hasher
+                    $this->Auth->constructAuthenticate();
+                }
+                // user has TOTP token, check creds and redirect to TOTP validation
+                if (!empty($unauth_user['User']['totp']) && !$unauth_user['User']['disabled'] && class_exists('\OTPHP\TOTP')) {
+                    $user = $this->Auth->identify($this->request, $this->response);
+                    if ($user && !$user['disabled']) {
+                        $this->Session->write('otp_user', $user);
+                        return $this->redirect('otp');
+                    }
+                }
             }
         }
+        // if instance requires email OTP 
         if ($this->request->is('post') && Configure::read('Security.email_otp_enabled')) {
             $user = $this->Auth->identify($this->request, $this->response);
             if ($user && !$user['disabled']) {
@@ -1215,6 +1241,7 @@ class UsersController extends AppController
                 // Password is converted to hashed form automatically
                 $this->User->save(['id' => $this->Auth->user('id'), 'password' => $passwordToSave], false, ['password']);
             }
+            // login was successful, do everything that is needed such as logging and more:
             $this->_postlogin();
         } else {
             $dataSourceConfig = ConnectionManager::getDataSource('default')->config;
@@ -1223,10 +1250,12 @@ class UsersController extends AppController
             if (str_replace("//", "/", $this->webroot . $this->Session->read('Auth.redirect')) == $this->webroot && $this->Session->read('Message.auth.message') == $this->Auth->authError) {
                 $this->Session->delete('Message.auth');
             }
-            // don't display "invalid user" before first login attempt
+            // Login was failed, do everything that is needed such as blocklisting, logging and more
+            // Also don't display "invalid user" before first login attempt
             if ($this->request->is('post') || $this->request->is('put')) {
                 $this->Flash->error(__('Invalid username or password, try again'));
                 if (isset($this->request->data['User']['email'])) {
+                    // increase bruteforce attempt and log
                     $this->Bruteforce->insert($this->request->data['User']['email']);
                 }
             }
@@ -1313,6 +1342,7 @@ class UsersController extends AppController
             'recursive' => -1
         ));
         unset($user['User']['password']);
+        // update login timestamp and welcome user
         $this->User->updateLoginTimes($user['User']);
         $lastUserLogin = $user['User']['last_login'];
         $this->User->Behaviors->enable('SysLogLogable.SysLogLogable');
@@ -1320,6 +1350,31 @@ class UsersController extends AppController
             $readableDatetime = (new DateTime())->setTimestamp($lastUserLogin)->format('D, d M y H:i:s O'); // RFC822
             $this->Flash->info(__('Welcome! Last login was on %s', $readableDatetime));
         }
+        if (Configure::read('Security.alert_on_suspicious_logins')) {
+            try {
+                // there are reasons to believe there is evil happening, suspicious. Inform user and (org)admins.
+                $suspiciousness_reason = $this->User->UserLoginProfile->_isSuspicious();
+                if ($suspiciousness_reason) {
+                    // raise an alert (the SIEM component should ensure (org)admins are informed)
+                    $this->loadModel('Log');
+                    $this->Log->createLogEntry($this->Auth->user(), 'auth_alert', 'User', $this->Auth->user('id'), 'Suspicious login.', $suspiciousness_reason);
+                    // Line below commented out to NOT inform user/org admin of the suspicious login.
+                    // The reason is that we want to prevent other user actions cause trouble. 
+                    // However this also means we're sitting on data that could be used to detect new evil logins.
+                    // As we're generating alerts, the sysadmin should be keeping an eye on these
+                    // $this->User->UserLoginProfile->email_suspicious($user, $suspiciousness_reason);
+                }
+                // verify UserLoginProfile trust status and perform informative actions
+                if (!$this->User->UserLoginProfile->_isTrusted()) {
+                    // send email to inform the user
+                    $this->User->UserLoginProfile->email_newlogin($user);
+                }
+            } catch (Exception $e) {
+                // At first login after code update and before DB schema update we might end up with problems.
+                // Just catch it cleanly here to prevent problems.
+            }
+        }
+
         // no state changes are ever done via GET requests, so it is safe to return to the original page:
         $this->redirect($this->Auth->redirectUrl());
     }
@@ -1361,6 +1416,7 @@ class UsersController extends AppController
         unset($user['User']['password']);
         $user['User']['action'] = 'logout';
         $this->User->save($user['User'], true, array('id'));
+        $this->Session->write('otp_secret', null);
         $this->redirect($this->Auth->logout());
     }
 
@@ -1553,8 +1609,9 @@ class UsersController extends AppController
     public function admin_quickEmail($user_id)
     {
         $user = $this->User->find('first', array(
-            'conditions' => $this->__adminFetchConditions($user_id),
-            'recursive' => -1
+            'conditions' => $this->__adminFetchConditions($user_id, $edit=False),
+            'recursive' => -1,
+            'contain' => array('Role')
         ));
         $error = false;
         if (empty($user)) {
@@ -1718,7 +1775,8 @@ class UsersController extends AppController
     {
         $user = $this->User->find('first', array(
             'conditions' => $this->__adminFetchConditions($id),
-            'recursive' => -1
+            'recursive' => -1,
+            'contain' => array('Role')
         ));
         if (empty($user)) {
             throw new NotFoundException(__('Invalid user'));
@@ -1748,6 +1806,178 @@ class UsersController extends AppController
         }
     }
 
+    public function otp()
+    {
+        $user = $this->Session->read('otp_user');
+        if (empty($user)) {
+            $this->redirect('login');
+        }
+        if ($this->request->is('post') && isset($this->request->data['User']['otp'])) {
+            $this->Bruteforce = ClassRegistry::init('Bruteforce');
+            if ($this->Bruteforce->isBlocklisted($user['email'])) {
+                $expire = Configure::check('SecureAuth.expire') ? Configure::read('SecureAuth.expire') : 300;
+                throw new ForbiddenException('You have reached the maximum number of login attempts. Please wait ' . $expire . ' seconds and try again.');
+            }
+            $secret = $user['totp'];
+            $totp = \OTPHP\TOTP::create($secret);
+            $hotp = \OTPHP\HOTP::create($secret);
+            if ($totp->verify(trim($this->request->data['User']['otp']))) {
+                // OTP is correct, we login the user with CakePHP
+                $this->Auth->login($user);
+                $this->_postlogin();
+            } elseif (isset($user['hotp_counter']) && $hotp->verify(trim($this->request->data['User']['otp']), $user['hotp_counter'])) {
+                // HOTP is correct, update the counter and login
+                $this->User->id = $user['id'];
+                $this->User->saveField('hotp_counter', $user['hotp_counter']+1);
+                $this->Auth->login($user);
+                $this->_postlogin();
+            } else {
+                $this->Flash->error(__("The OTP is incorrect or has expired"));
+                $fieldsDescrStr = 'User (' . $user['id'] . '): ' . $user['email']. ' wrong OTP token';
+                $this->User->extralog($user, "login_fail", $fieldsDescrStr, '');
+                $this->Bruteforce->insert($user['email']);
+            }
+        }
+        // GET Request or wrong OTP, just show the form
+        $this->set('totp', $user['totp']? true : false);
+        $this->set('hotp_counter', $user['hotp_counter']);
+    }
+
+    public function hotp()
+    {
+        if (!class_exists('\OTPHP\HOTP')) {
+            $this->Flash->error(__("The required PHP libraries to support OTP are not installed. Please contact your administrator to address this."));
+            $this->redirect($this->referer());
+        }
+
+        $user = $this->User->find('first', array(
+            'recursive' => -1,
+            'conditions' => array('User.id' => $this->Auth->user('id')),
+            'fields' => array(
+                'totp', 'email', 'id', 'hotp_counter'
+            )
+        ));
+        $hotp = \OTPHP\HOTP::create($user['User']['totp'], $user['User']['hotp_counter']);
+        $hotp_codes = [];
+        for ($i=$user['User']['hotp_counter']; $i < $user['User']['hotp_counter']+50 ; $i++) {
+            $hotp_codes[$i] = $hotp->at($i);
+        }
+        $this->set('hotp_codes', $hotp_codes);
+    }
+
+    public function totp_new()
+    {
+        if (Configure::read('LinOTPAuth.enabled')) {
+            $this->Flash->error(__("LinOTP is enabled for this instance. Built-in TOTP should not be used."));
+            $this->redirect($this->referer());
+        }
+        if (!class_exists('\OTPHP\TOTP') || !class_exists('\BaconQrCode\Writer')) {
+            $this->Flash->error(__("The required PHP libraries to support TOTP are not installed. Please contact your administrator to address this."));
+            $this->redirect($this->referer());
+        }
+        // only allow the users themselves to generate a TOTP secret.
+        // If TOTP is enforced they will be invited to generate it at first login
+        $user = $this->User->find('first', array(
+            'recursive' => -1,
+            'conditions' => array('User.id' => $this->Auth->user('id')),
+            'fields' => array(
+                'totp', 'email', 'id'
+            )
+        ));
+        if (empty($user)) {
+            throw new NotFoundException(__('Invalid user'));
+        }
+        // do not allow this page to be accessed if the current already has a TOTP. Just redirect to the users details page with a Flash->error()
+        if ($user['User']['totp']) { 
+            $this->Flash->error(__("Your account already has a TOTP. Please contact your organisational administrator to change or delete it."));
+            $this->redirect($this->referer());
+        }
+
+        if ($this->request->is('get')) {
+            $totp = \OTPHP\TOTP::create();
+            $secret = $totp->getSecret();
+            $this->Session->write('otp_secret', $secret);  // Store in session, we want to create a new secret each time the totp_new() function is queried via a GET (this will not impede incorrect confirmation attempty)
+        } else {
+            $secret = $this->Session->read('otp_secret');  // Reload secret from session.
+            if ($secret) {
+                $totp = \OTPHP\TOTP::create($secret);
+            } else {
+                $totp = \OTPHP\TOTP::create();
+                $secret = $totp->getSecret();
+                $this->Session->write('otp_secret', $secret); // Store in session, we want to keep reusing the same QR code until the user correctly enters the generated key on their authenticator
+            }
+        }
+        if ($this->request->is('post') && isset($this->request->data['User']['otp'])) {
+            if ($totp->verify(trim($this->request->data['User']['otp']))) {
+                // we know the user can generate TOTP tokens, save the new TOTP to the database
+                $this->User->id = $user['User']['id'];
+                $this->User->saveField('totp', $secret);
+                $this->User->saveField('hotp_counter', 0);
+                $this->_refreshAuth();    
+                $this->Flash->info(__('The OTP is correct and now active for your account.'));
+                $fieldsDescrStr = 'User (' . $user['User']['id'] . '): ' . $user['User']['email']. ' TOTP token created';
+                $this->User->extralog($this->Auth->user(), "update", $fieldsDescrStr, '');
+                // redirect to a page that gives the next 50 HOTP
+                $this->redirect(array('controller' => 'users', 'action'=> 'hotp'));
+            } else {
+                $this->Flash->error(__("The OTP is incorrect or has expired."));
+            }
+        } else {
+            // GET Request, just show the form
+        }
+        // generate QR code with the secret
+        $renderer = new \BaconQrCode\Renderer\ImageRenderer(
+            new \BaconQrCode\Renderer\RendererStyle\RendererStyle(200),
+            new \BaconQrCode\Renderer\Image\SvgImageBackEnd()
+        );
+        $writer = new \BaconQrCode\Writer($renderer);
+        $totp->setLabel($user['User']['email']);
+        if (Configure::read('Security.otp_issuer')) {
+            $totp->setIssuer(Configure::read('Security.otp_issuer'));
+        } else {
+            $totp->setIssuer(Configure::read('MISP.org') . ' MISP');
+        }
+        $qrcode = $writer->writeString($totp->getProvisioningUri());
+        $qrcode = preg_replace('/^.+\n/', '', $qrcode); // ignore first <?xml version line 
+
+        $this->set('qrcode', $qrcode);
+        $this->set('secret', $secret);
+    }
+
+    public function totp_delete($id) {
+        if ($this->request->is('post') || $this->request->is('delete')) {
+            $user = $this->User->find('first', array(
+                'conditions' => $this->__adminFetchConditions($id),
+                'recursive' => -1,
+                'contain' => array('Role')
+            ));
+            if (empty($user)) {
+                throw new NotFoundException(__('Invalid user'));
+            }
+            $this->User->id = $id;
+            if ($this->User->saveField('totp', null)) {
+                $fieldsDescrStr = 'User (' . $id . '): ' . $user['User']['email'] . ' TOTP deleted';
+                $this->User->extralog($this->Auth->user(), "update", $fieldsDescrStr, '');
+                if ($this->_isRest()) {
+                    return $this->RestResponse->saveSuccessResponse('User', 'totp_delete', $id, $this->response->type(), 'User TOTP deleted.');
+                } else {
+                    $this->Flash->success(__('User TOTP deleted'));
+                    $this->redirect('/admin/users/index');
+                }
+            }
+            $this->Flash->error(__('User TOTP was not deleted'));
+            $this->redirect('/admin/users/index');
+        } else {
+            $this->set(
+                'question',
+                __('Are you sure you want to delete the TOTP of the user?.')
+            );
+            $this->set('title', __('Delete user TOTP'));
+            $this->set('actionName', 'Delete');
+            $this->render('/genericTemplates/confirm');
+        }
+    }
+
     public function email_otp()
     {
         $user = $this->Session->read('email_otp_user');
@@ -1767,6 +1997,8 @@ class UsersController extends AppController
                 $this->_postlogin();
             } else {
                 $this->Flash->error(__("The OTP is incorrect or has expired"));
+                $fieldsDescrStr = 'User (' . $user['id'] . '): ' . $user['email']. ' wrong email OTP token';
+                $this->User->extralog($user, "login_fail", $fieldsDescrStr, '');
             }
         } else {
             // GET Request
@@ -2583,7 +2815,7 @@ class UsersController extends AppController
             } else {
                 $this->Log = ClassRegistry::init('Log');
                 $this->Log->create();
-                $this->Log->save(array(
+                $this->Log->saveOrFailSilently(array(
                     'org' => $this->Auth->user('Organisation')['name'],
                     'model' => 'User',
                     'model_id' => 0,
@@ -2785,7 +3017,8 @@ class UsersController extends AppController
     public function viewPeriodicSummary(string $period)
     {
         $userId = $this->Auth->user('id');
-        $summary = $this->User->generatePeriodicSummary($userId, $period);
+        $lastdays = $this->request->params['named']['lastdays'] ?? false;
+        $summary = $this->User->generatePeriodicSummary($userId, $period, true, $lastdays);
         $periodicSettings = $this->User->fetchPeriodicSettingForUser($userId);
         $this->set('periodic_settings', $periodicSettings);
         $this->set('summary', $summary);
@@ -2832,7 +3065,7 @@ class UsersController extends AppController
      * @return array
      * @throws NotFoundException
      */
-    private function __adminFetchConditions($id)
+    private function __adminFetchConditions($id, $edit = True)
     {
         if (empty($id)) {
             throw new NotFoundException(__('Invalid user'));
@@ -2842,6 +3075,9 @@ class UsersController extends AppController
         $user = $this->Auth->user();
         if (!$user['Role']['perm_site_admin']) {
             $conditions['User.org_id'] = $user['org_id']; // org admin
+            if ($edit) {
+                $conditions['Role.perm_site_admin'] = False;
+            }
         }
         return $conditions;
     }
@@ -2896,6 +3132,111 @@ class UsersController extends AppController
             $this->render('/genericTemplates/confirm');
         }
     }
+
+    public function view_login_history($user_id = null) { 
+        if ($user_id && $this->_isAdmin()) {   // org and site admins
+            $user = $this->User->find('first', array(
+                'recursive' => -1,
+                'conditions' => $this->__adminFetchConditions($user_id),
+                'contain' => [
+                    'UserSetting',
+                    'Role',
+                    'Organisation'
+                ]
+            ));
+            if (empty($user)) {
+                throw new NotFoundException(__('Invalid user'));
+            }
+        } else {
+            $user_id = $this->Auth->user('id');
+        }
+        $this->loadModel('UserLoginProfile');
+        $this->loadModel('Log');
+        $logs = $this->Log->find('all', array(
+            'conditions' => array(
+                'Log.user_id' => $user_id,
+                'OR' => array ('Log.action' => array('login', 'login_fail', 'auth', 'auth_fail'))
+            ),
+            'fields' => array('Log.action', 'Log.created', 'Log.ip', 'Log.change', 'Log.id'),
+            'order' => array('Log.created DESC'),
+            'limit' => 100          // relatively high limit, as we'll be grouping data afterwards.
+        ));
+        $lst = array();
+        $prevProfile = null;
+        $prevCreatedLast = null;
+        $prevCreatedFirst = null;
+        $prevLogEntry = null;
+        $prevActions = array();
+
+        $actions_translator = [
+            'auth_fail' => 'API:failed',
+            'auth' => 'API:login',
+            'login' => 'web:login',
+            'login_fail' => 'web:failed'
+        ];
+        
+        $max_rows = 6;  // limit to a few rows, to prevent cluttering the interface. 
+                        // We didn't filter the data at SQL query too much, nor by age, as we want to show "enough" data, even if old
+        $rows = 0;
+        // group authentications by type of loginprofile, to make the list shorter
+        foreach($logs as $logEntry) {
+            $loginProfile = $this->UserLoginProfile->_fromLog($logEntry['Log']);
+            if (!$loginProfile) continue; // skip if empty log
+            $loginProfile['ip'] = $logEntry['Log']['ip'] ?? null; // transitional workaround
+            if ($this->UserLoginProfile->_isSimilar($loginProfile, $prevProfile)) {
+                // continue find as same type of login
+                $prevCreatedFirst = $logEntry['Log']['created'];
+                $prevActions[] = $actions_translator[$logEntry['Log']['action']] ?? $logEntry['Log']['action'];
+            } else {
+                // add as new entry
+                if (null != $prevProfile) {
+                    $actionsString = '';  // count actions
+                    foreach(array_count_values($prevActions) as $action => $cnt) {
+                        $actionsString .=  $action . ' (' . $cnt . "x) ";
+                    }
+                    $lst[] = array(
+                        'status' => $this->UserLoginProfile->_getTrustStatus($prevProfile, $user_id),
+                        'platform' => $prevProfile['ua_platform'],
+                        'browser' => $prevProfile['ua_browser'],
+                        'region' => $prevProfile['geoip'],
+                        'ip' =>  $prevProfile['ip'],
+                        'accept_lang' => $prevProfile['accept_lang'],
+                        'last_seen' => $prevCreatedLast,
+                        'first_seen' => $prevCreatedFirst,
+                        'actions' => $actionsString,
+                        'actions_button' => ('unknown' == $this->UserLoginProfile->_getTrustStatus($prevProfile, $user_id)) ? true : false,
+                        'id' => $prevLogEntry);
+                }
+                // build new entry
+                $prevProfile = $loginProfile;
+                $prevCreatedFirst = $prevCreatedLast = $logEntry['Log']['created'];
+                $prevActions[] = $actions_translator[$logEntry['Log']['action']] ?? $logEntry['Log']['action'];
+                $prevLogEntry = $logEntry['Log']['id'];
+                $rows += 1;
+                if ($rows == $max_rows) break;
+            }
+        }
+        // add last entry
+        $actionsString = '';  // count actions
+        foreach(array_count_values($prevActions) as $action => $cnt) {
+            $actionsString .=  $action . ' (' . $cnt . "x) ";
+        }
+        $lst[] = array(
+            'status' => $this->UserLoginProfile->_getTrustStatus($prevProfile, $user_id),
+            'platform' => $prevProfile['ua_platform'],
+            'browser' => $prevProfile['ua_browser'],
+            'region' => $prevProfile['geoip'],
+            'ip' =>  $prevProfile['ip'],
+            'accept_lang' => $prevProfile['accept_lang'],
+            'last_seen' => $prevCreatedLast,
+            'first_seen' => $prevCreatedFirst,
+            'actions' => $actionsString,
+            'actions_button' => ('unknown' == $this->UserLoginProfile->_getTrustStatus($prevProfile, $user_id)) ? true : false,
+            'id' => $prevLogEntry);
+        $this->set('data', $lst);
+        $this->set('user_id', $user_id);
+    }
+
     public function logout401() {
         # You should read the documentation in docs/CONFIG.ApacheSecureAuth.md
         # before using this endpoint. It is not useful without webserver config
@@ -2903,4 +3244,69 @@ class UsersController extends AppController
         # To use this, set Plugin.CustomAuth_custom_logout to /users/logout401
         $this->response->statusCode(401);
     }
+
+    public function forgot()
+    {
+        if (empty(Configure::read('Security.allow_password_forgotten'))) {
+            $this->Flash->error(__('This feature is disabled.'));
+            $this->redirect('/');
+        }
+        if (!empty($this->Auth->user()) && !$this->_isRest()) {
+            $this->Flash->info(__('You are already logged in, no need to ask for a password reset. Log out first.'));
+            $this->redirect('/');
+        }
+        if ($this->request->is('post')) {
+            if (empty($this->request->data['User'])) {
+                $this->request->data = ['User' => $this->request->data];
+            }
+            if (empty($this->request->data['User']['email'])) {
+                throw new MethodNotAllowedException(__('No email provided, cannot generate password reset message.'));
+            }
+            $user = [
+                'id' => 0,
+                'email' => 'SYSTEM',
+                'Organisation' => [
+                    'name' => 'SYSTEM'
+                ]
+            ];
+            $this->loadModel('Log');
+            $this->Log->createLogEntry($user, 'forgot', 'User', 0, 'Password reset requested for: ' . $this->request->data['User']['email']);
+            $this->User->forgotRouter($this->request->data['User']['email'], $this->_remoteIp());
+            $message = __('Password reset request submitted. If a valid user is found, you should receive an e-mail with a temporary reset link momentarily. Please be advised that this link is only valid for 10 minutes.');
+            if ($this->_isRest()) {
+                return $this->RestResponse->saveSuccessResponse('User', 'forgot', false, $this->response->type(), $message);
+            }
+            $this->Flash->info($message);
+            $this->redirect('/');
+        }
+    }
+
+    public function password_reset($token)
+    {
+        if (empty(Configure::read('Security.allow_password_forgotten'))) {
+            $this->Flash->error(__('This feature is disabled.'));
+            $this->redirect('/');
+        }
+        $this->loadModel('Server');
+        $this->set('complexity', !empty(Configure::read('Security.password_policy_complexity')) ? Configure::read('Security.password_policy_complexity') : $this->Server->serverSettings['Security']['password_policy_complexity']['value']);
+        $this->set('length', !empty(Configure::read('Security.password_policy_length')) ? Configure::read('Security.password_policy_length') : $this->Server->serverSettings['Security']['password_policy_length']['value']);
+        if (!empty($this->Auth->user()) && !$this->_isRest()) {
+            $this->redirect('/');
+        }
+        $user = $this->User->fetchForgottenPasswordUser($token);
+        if (empty($user)) {
+            $message = __('Invalid token, or password request token already expired.');
+            if ($this->_isRest()) {
+                throw new MethodNotAllowedException($message);
+            } else {
+                $this->Flash->error($message);
+                $this->redirect('/');
+            }
+        }
+        if ($this->request->is('post') || $this->request->is('put')) {
+            $abortPost = false;
+            return $this->__pw_change(['User' => $user], 'password_reset', $abortPost, $token, true);
+        }
+    }
+
 }

@@ -125,7 +125,9 @@ class Correlation extends AppModel
         $this->FuzzyCorrelateSsdeep = ClassRegistry::init('FuzzyCorrelateSsdeep');
         $this->FuzzyCorrelateSsdeep->purge($eventId, $attributeId);
 
-        $this->OverCorrelatingValue->truncateTable();
+        if (empty($eventId) && empty($attributeId)) {
+            $this->OverCorrelatingValue->truncateTable();
+        }
 
         if (!$eventId) {
             $eventIds = $this->Event->find('column', [
@@ -140,9 +142,14 @@ class Correlation extends AppModel
         $attributeCount = 0;
         if (Configure::read('MISP.background_jobs') && $jobId) {
             $this->Job = ClassRegistry::init('Job');
+            $this->Job->id = $jobId;
+            if (!$this->Job->exists()) {
+                $jobId = false;
+            }
         } else {
             $jobId = false;
         }
+
         if (!empty($eventIds)) {
             $eventCount = count($eventIds);
             foreach ($eventIds as $j => $currentEventId) {

@@ -18,6 +18,23 @@ foreach ($notificationTypes as $notificationType => $description) {
 }
 $notificationsHtml .= '</table>';
 
+$isTotp = isset($user['User']['totp']) ? true : false;
+$boolean = sprintf(
+'<span class="%s">%s</span>',
+    $isTotp ? 'label label-success label-padding' : 'label label-important label-padding',
+$isTotp ? __('Yes') : __('No'));
+$totpHtml = $boolean;
+$totpHtml .= (!$isTotp && !$admin_view ? $this->Html->link(__('Generate'), array('action' => 'totp_new')) : '');
+$totpHtml .= ($isTotp && !$admin_view ? $this->Html->link(__('View paper tokens'), array('action' => 'hotp', $user['User']['id'])): '');
+
+if ($isAdmin && $isTotp) {
+    $totpHtml .= sprintf(
+        '<a href="#" onClick="openGenericModal(\'%s/users/totp_delete/%s\')">%s</a>',
+        h($baseurl),
+        h($user['User']['id']),
+        __($isTotp && !$admin_view ? ' Delete' : 'Delete')
+    );
+}
     $table_data = [
         array('key' => __('ID'), 'value' => $user['User']['id']),
         array(
@@ -36,6 +53,11 @@ $notificationsHtml .= '</table>';
         array(
             'key' => __('Role'),
             'html' => $this->Html->link($user['Role']['name'], array('controller' => 'roles', 'action' => 'view', $user['Role']['id'])),
+        ),
+        // array('key' => __('TOTP'), 'boolean' => isset($user['User']['totp']) ? true : false),
+        array(
+            'key' => __('TOTP'),
+            'html' => $totpHtml
         ),
         array(
             'key' => __('Email notifications'),
@@ -68,7 +90,7 @@ $notificationsHtml .= '</table>';
     }
 
     if (Configure::read('Plugin.CustomAuth_enable') && !empty($user['User']['external_auth_key'])) {
-        $header = Configure::read('Plugin.CustomAuth_header') ?: 'Authorization';
+        $header = Configure::read('Plugin.CustomAuth_header') ?: 'AUTHORIZATION';
         $table_data[] = array(
             'key' => __('Customauth header'),
             'html' => sprintf(
@@ -135,6 +157,10 @@ $notificationsHtml .= '</table>';
         'key' => __('Created'),
         'html' => $user['User']['date_created'] ? $this->Time->time($user['User']['date_created']) : __('N/A')
     );
+    $table_data[] = array(
+        'key' => __('Last password change'),
+        'html' => $user['User']['last_pw_change'] ? $this->Time->time($user['User']['last_pw_change']) : __('N/A')
+    );
     if ($admin_view) {
         $table_data[] = array(
             'key' => __('News read at'),
@@ -151,7 +177,7 @@ $notificationsHtml .= '</table>';
         'js' => array('vis', 'jquery-ui.min', 'network-distribution-graph')
     ));
     echo sprintf(
-        '<div class="users view"><div class="row-fluid"><div class="span8" style="margin:0px;">%s</div></div>%s%s<div style="margin-top:20px;">%s%s</div></div>',
+        '<div class="users view"><div class="row-fluid"><div class="span8" style="margin:0px;">%s</div></div>%s%s%s<div style="margin-top:20px;">%s%s</div></div>',
         sprintf(
             '<h2>%s</h2>%s',
             __('User %s', h($user['User']['email'])),
@@ -173,6 +199,15 @@ $notificationsHtml .= '</table>';
                 $baseurl
             ),
             __('Review user logs')
+        ),
+        sprintf(
+            '&nbsp;<a href="%s" class="btn btn-inverse">%s</a>',
+            sprintf(
+                '%s/users/view_login_history/%s',
+                $baseurl,
+                h($user['User']['id'])
+            ),
+            __('Review user logins')
         ),
         $me['Role']['perm_auth'] ? $this->element('/genericElements/accordion', array('title' => __('Auth keys'), 'url' => '/auth_keys/index/' . h($user['User']['id']))) : '',
         $this->element('/genericElements/accordion', array('title' => 'Events', 'url' => '/events/index/searchemail:' . urlencode(h($user['User']['email']))))

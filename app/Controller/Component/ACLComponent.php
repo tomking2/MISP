@@ -203,6 +203,7 @@ class ACLComponent extends Component
                 'extractFromReport' => array('*'),
                 'replaceSuggestionInReport' => array('*'),
                 'importReportFromUrl' => array('*'),
+                'sendToLLM' => ['*'],
             ),
             'events' => array(
                     'add' => array('perm_add'),
@@ -484,9 +485,9 @@ class ACLComponent extends Component
                 'display' => array('*'),
             ),
             'posts' => array(
-                'add' => ['AND' => ['not_read_only_authkey', 'discussion_enabled']],
-                'delete' => ['AND' => ['not_read_only_authkey', 'discussion_enabled']],
-                'edit' => ['AND' => ['not_read_only_authkey', 'discussion_enabled']],
+                'add' => ['AND' => ['not_read_only_authkey', 'discussion_enabled', 'perm_add']],
+                'delete' => ['AND' => ['not_read_only_authkey', 'discussion_enabled', 'perm_add']],
+                'edit' => ['AND' => ['not_read_only_authkey', 'discussion_enabled', 'perm_add']],
                 'pushMessageToZMQ' => array()
             ),
             'regexp' => array(
@@ -613,10 +614,11 @@ class ACLComponent extends Component
             ),
             'sightings' => array(
                 'add' => array('perm_sighting'),
-                'restSearch' => array('perm_sighting'),
+                'restSearch' => array('*'),
                 'advanced' => array('perm_sighting'),
                 'delete' => ['AND' => ['perm_sighting', 'perm_modify_org']],
                 'index' => array('*'),
+                'view' => array('*'),
                 'listSightings' => array('*'),
                 'quickDelete' => ['AND' => ['perm_sighting', 'perm_modify_org']],
                 'viewSightings' => array('*'),
@@ -688,14 +690,17 @@ class ACLComponent extends Component
                 'normalizeCustomTagsToTaxonomyFormat' => [],
             ),
             'taxiiServers' => [
-                'add' => ['perm_admin'],
-                'edit' => ['perm_admin'],
-                'index' => ['perm_admin'],
-                'delete' => ['perm_admin'],
-                'view' => ['perm_admin'],
-                'push' => ['perm_admin'],
-                'getRoot' => ['perm_admin'],
-                'getCollections' => ['perm_admin']
+                'add' => ['perm_site_admin'],
+                'edit' => ['perm_site_admin'],
+                'collectionsIndex' => ['perm_site_admin'],
+                'index' => ['perm_site_admin'],
+                'objectsIndex' => ['perm_site_admin'],
+                'objectView' => ['perm_site_admin'],
+                'delete' => ['perm_site_admin'],
+                'view' => ['perm_site_admin'],
+                'push' => ['perm_site_admin'],
+                'getRoot' => ['perm_site_admin'],
+                'getCollections' => ['perm_site_admin']
             ],
             'templateElements' => array(
                 'add' => array('perm_template'),
@@ -745,6 +750,11 @@ class ACLComponent extends Component
                 'downloadTerms' => array('*'),
                 'edit' => array('self_management_enabled'),
                 'email_otp' => array('*'),
+                'forgot' => array('*'),
+                'otp' => array('*'),
+                'hotp' => array('*'),
+                'totp_new' => array('*'),
+                'totp_delete' => array('perm_admin'),
                 'searchGpgKey' => array('*'),
                 'fetchGpgKey' => array('*'),
                 'histogram' => array('*'),
@@ -753,6 +763,7 @@ class ACLComponent extends Component
                 'logout' => array('*'),
                 'logout401' => array('*'),
                 'notificationSettings' => ['*'],
+                'password_reset' => array('*'),
                 'register' => array('*'),
                 'registrations' => array(),
                 'resetAllSyncAuthKeys' => array(),
@@ -770,6 +781,13 @@ class ACLComponent extends Component
                 'viewPeriodicSummary' => ['*'],
                 'getGpgPublicKey' => array('*'),
                 'unsubscribe' => ['*'],
+                'view_login_history' => ['*']
+            ),
+            'userLoginProfiles' => array(
+                'index' => ['*'],
+                'trust' => ['*'],
+                'malicious' => ['*'],
+                'admin_delete' => ['perm_admin']
             ),
             'userSettings' => array(
                 'index' => array('*'),
@@ -1130,7 +1148,7 @@ class ACLComponent extends Component
                     if ($hit) {
                         $this->Log = ClassRegistry::init('Log');
                         $this->Log->create();
-                        $this->Log->save(array(
+                        $this->Log->saveOrFailSilently(array(
                                 'org' => 'SYSTEM',
                                 'model' => 'User',
                                 'model_id' => $user['id'],

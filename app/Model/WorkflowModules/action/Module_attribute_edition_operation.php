@@ -36,15 +36,31 @@ class Module_attribute_edition_operation extends WorkflowBaseActionModule
         return $attribute;
     }
 
-    protected function __saveAttribute(array $attributes, array $rData, array $params, array $user): bool
+    protected function __saveAttributes(array $attributes, array $rData, array $params, array $user): array
     {
         $success = false;
-        foreach ($attributes as $attribute) {
-            $attribute = $this->_editAttribute($attribute, $rData, $params);
-            unset($attribute['timestamp']);
-            $saveSuccess = $this->Attribute->editAttribute($attribute, $rData, $user, $attribute['object_id']);
+        $attributes = [];
+        $newAttributes = [];
+        foreach ($attributes as $k => $attribute) {
+            $newAttribute = $this->_editAttribute($attribute, $rData, $params);
+            $newAttributes[] = $newAttribute;
+            unset($newAttribute['timestamp']);
+            $result = $this->Attribute->editAttribute($newAttribute, $rData, $user, $newAttribute['object_id']);
+            if (is_array($result)) {
+                $attributes[] = $result;
+            }
+        }
+        $this->Attribute->editAttributeBulk($attributes, $rData, $user);
+        foreach ($attributes as $k => $attribute) {
+            $saveSuccess = empty($this->Attribute->validationErrors[$k]);
+            if ($saveSuccess) {
+                $rData = $this->_overrideAttribute($attribute, $newAttribute, $rData);
+            }
             $success = $success || !empty($saveSuccess);
         }
-        return $success;
+        return [
+            'success' => $success,
+            'updated_rData' => $rData,
+        ];
     }
 }

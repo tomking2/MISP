@@ -31,7 +31,7 @@ class EventsController extends AppController
         'sort', 'direction', 'focus', 'extended', 'overrideLimit', 'filterColumnsOverwrite', 'attributeFilter', 'page',
         'searchFor', 'proposal', 'correlation', 'warning', 'deleted', 'includeRelatedTags', 'includeDecayScore', 'distribution',
         'taggedAttributes', 'galaxyAttachedAttributes', 'objectType', 'attributeType', 'feed', 'server', 'toIDS',
-        'sighting', 'includeSightingdb', 'warninglistId', 'correlationId',
+        'sighting', 'includeSightingdb', 'warninglistId', 'correlationId', 'email', 'eventid', 'datefrom', 'dateuntil'
     );
 
     // private
@@ -1117,7 +1117,7 @@ class EventsController extends AppController
             'attribute' => array('OR' => array(), 'NOT' => array()),
             'hasproposal' => 2,
             'timestamp' => array('from' => "", 'until' => ""),
-            'publishtimestamp' => array('from' => "", 'until' => ""),
+            'publishtimestamp' => array('from' => "", 'until' => "")
         );
 
         if ($this->_isSiteAdmin()) {
@@ -2470,7 +2470,7 @@ class EventsController extends AppController
                         $this->data['Event']['publish'],
                         $this->data['Event']['distribution'],
                         $this->data['Event']['sharing_group_id'],
-                        !boolval($this->data['Event']['galaxies_parsing']),
+                        $this->data['Event']['galaxies_handling'],
                         $debug
                     );
                     if (is_numeric($result)) {
@@ -2500,6 +2500,16 @@ class EventsController extends AppController
         $this->set('distributionLevels', $distributionLevels);
         foreach ($distributionLevels as $key => $value) {
             $fieldDesc['distribution'][$key] = $this->Event->distributionDescriptions[$key]['formdesc'];
+        }
+        $debugOptions = $this->Event->debugOptions;
+        $this->set('debugOptions', $debugOptions);
+        foreach ($debugOptions as $key => $value) {
+            $fieldDesc['debug'][$key] = $this->Event->debugDescriptions[$key];
+        }
+        $galaxiesOptions = $this->Event->galaxiesOptions;
+        $this->set('galaxiesOptions', $galaxiesOptions);
+        foreach ($galaxiesOptions as $key => $value) {
+            $fieldDesc['galaxies_handling'][$key] = $this->Event->galaxiesOptionsDescriptions[$key];
         }
         $this->set('sharingGroups', $sgs);
         $this->set('fieldDesc', $fieldDesc);
@@ -2783,7 +2793,15 @@ class EventsController extends AppController
                 if (!isset($this->request->data['Event'])) {
                     $this->request->data = array('Event' => $this->request->data);
                 }
-                $result = $this->Event->_edit($this->request->data, $this->Auth->user(), $id);
+                $fast_update = $this->request->param('named.fast_update');
+                if (!empty($this->request->data['Event']['fast_update'])) {
+                    $fast_update = (bool)$this->request->data['Event']['fast_update'];
+                }
+                if ($fast_update) {
+                    $this->Event->fast_update = true;
+                    $this->Event->Attribute->fast_update = true;
+                }
+                $result = $this->Event->_edit($this->request->data, $this->Auth->user(), $id, null, null, false);
                 if ($result === true) {
                     // REST users want to see the newly created event
                     $metadata = $this->request->param('named.metadata');
@@ -4651,7 +4669,7 @@ class EventsController extends AppController
                 )
             );
             if (!$result) {
-                $this->Log->save(array(
+                $this->Log->saveOrFailSilently(array(
                         'org' => $this->Auth->user('Organisation')['name'],
                         'model' => 'Event',
                         'model_id' => 0,
@@ -5210,42 +5228,82 @@ class EventsController extends AppController
         $this->render('index');
     }
 
-    // expects an attribute ID and the module to be used
-    public function queryEnrichment($attribute_id, $module = false, $type = 'Enrichment')
+    // expects a model ID, model type, the module to be used (optional) and the type of enrichment (optional)
+    public function queryEnrichment($id, $module = false, $type = 'Enrichment', $model = 'Attribute')
     {
         if (!Configure::read('Plugin.' . $type . '_services_enable')) {
             throw new MethodNotAllowedException(__('%s services are not enabled.', $type));
         }
-        $attribute = $this->Event->Attribute->fetchAttributes($this->Auth->user(), [
-            'conditions' => [
-                'Attribute.id' => $attribute_id
-            ],
-            'flatten' => 1,
-            'includeEventTags' => 1,
-            'contain' => ['Event' => ['fields' => ['distribution', 'sharing_group_id']]],
-        ]);
-        if (empty($attribute)) {
-            throw new MethodNotAllowedException(__('Attribute not found or you are not authorised to see it.'));
+
+        if (!in_array($model, array('Attribute', 'ShadowAttribute', 'Object', 'Event'))) {
+            throw new MethodNotAllowedException(__('Invalid model.'));
         }
+
         $this->loadModel('Module');
         $enabledModules = $this->Module->getEnabledModules($this->Auth->user(), false, $type);
+        
         if (!is_array($enabledModules) || empty($enabledModules)) {
-            throw new MethodNotAllowedException(__('No valid %s options found for this attribute.', $type));
+            throw new MethodNotAllowedException(__('No valid %s options found for this %s.', $type, strtolower($model)));
         }
+
+        if ($model === 'Attribute' || $model === 'ShadowAttribute') {
+            $attribute = $this->Event->Attribute->fetchAttributes($this->Auth->user(), [
+                'conditions' => [
+                    'Attribute.id' => $id
+                ],
+                'flatten' => 1,
+                'includeEventTags' => 1,
+                'contain' => ['Event' => ['fields' => ['distribution', 'sharing_group_id']]],
+            ]);
+            if (empty($attribute)) {
+                throw new MethodNotAllowedException(__('Attribute not found or you are not authorised to see it.'));
+            }
+        }
+
+        if ($model === 'Object') {
+            $object = $this->Event->Object->fetchObjects($this->Auth->user(), [
+                'conditions' => [
+                    'Object.id' => $id
+                ],
+                'flatten' => 1,
+                'includeEventTags' => 1,
+                'contain' => ['Event' => ['fields' => ['distribution', 'sharing_group_id']]],
+            ]);
+            if (empty($object)) {
+                throw new MethodNotAllowedException(__('Object not found or you are not authorised to see it.'));
+            }
+        }
+        
         if ($this->request->is('ajax')) {
-            $modules = array();
-            foreach ($enabledModules['modules'] as $module) {
-                if (in_array($attribute[0]['Attribute']['type'], $module['mispattributes']['input'])) {
-                    $modules[] = array('name' => $module['name'], 'description' => $module['meta']['description']);
+            $modules = [];
+
+            if ($model === 'Attribute' || $model === 'ShadowAttribute') {
+                foreach ($enabledModules['modules'] as $module) {
+                    if (in_array($attribute[0]['Attribute']['type'], $module['mispattributes']['input'])) {
+                        $modules[] = array('name' => $module['name'], 'description' => $module['meta']['description']);
+                    }
                 }
             }
-            foreach (array('attribute_id', 'modules') as $viewVar) {
-                $this->set($viewVar, $$viewVar);
+
+            if ($model === 'Object') {
+                foreach ($enabledModules['modules'] as $module) {
+                    if (
+                        in_array($object[0]['Object']['name'], $module['mispattributes']['input']) ||
+                        in_array($object[0]['Object']['uuid'], $module['mispattributes']['input'])
+                    ) {
+                        $modules[] = array('name' => $module['name'], 'description' => $module['meta']['description']);
+                    }
+                }
             }
+            
+            $this->set('id', $id);
+            $this->set('modules', $modules);
             $this->set('type', $type);
+            $this->set('model', $model);
             $this->render('ajax/enrichmentChoice');
         } else {
-            $options = array();
+            $options = [];
+            $format = 'simplified';
             foreach ($enabledModules['modules'] as $temp) {
                 if ($temp['name'] == $module) {
                     $format = !empty($temp['mispattributes']['format']) ? $temp['mispattributes']['format'] : 'simplified';
@@ -5267,7 +5325,13 @@ class EventsController extends AppController
             $this->set('title_for_layout', __('Enrichment Results'));
             $this->set('title', __('Enrichment Results'));
             if ($format == 'misp_standard') {
-                $this->__queryEnrichment($attribute, $module, $options, $type);
+                if ($model === 'Attribute' || $model === 'ShadowAttribute') {
+                    $this->__queryEnrichment($attribute, $module, $options, $type);
+                }
+                
+                if ($model === 'Object') {
+                    $this->__queryObjectEnrichment($object, $module, $options, $type);
+                }
             } else {
                 $this->__queryOldEnrichment($attribute, $module, $options, $type);
             }
@@ -5301,6 +5365,57 @@ class EventsController extends AppController
             $importComment = !empty($result['comment']) ? $result['comment'] : $attribute[0]['Attribute']['value'] . __(': Enriched via the ') . $module . ($type != 'Enrichment' ? ' ' . $type : '')  . ' module';
             $this->set('importComment', $importComment);
             $event['Event'] = $attribute[0]['Event'];
+            $org_name = $this->Event->Orgc->find('first', array(
+                'conditions' => array('Orgc.id' => $event['Event']['orgc_id']),
+                'fields' => array('Orgc.name')
+            ));
+            $event['Event']['orgc_name'] = $org_name['Orgc']['name'];
+            if ($attribute[0]['Object']['id']) {
+                $object_id = $attribute[0]['Object']['id'];
+                $initial_object = $this->Event->fetchInitialObject($event_id, $object_id);
+                if (!empty($initial_object)) {
+                    $event['initialObject'] = $initial_object;
+                }
+            }
+            $this->set('event', $event);
+            $this->set('menuItem', 'enrichmentResults');
+            $this->set('title_for_layout', __('Enrichment Results'));
+            $this->set('title', __('Enrichment Results'));
+            $this->render('resolved_misp_format');
+        }
+    }
+
+    private function __queryObjectEnrichment($object, $module, $options, $type)
+    {
+        $object[0]['Object']['Attribute'] = $object[0]['Attribute'];
+        foreach($object[0]['Object']['Attribute'] as &$attribute) {
+            if ($this->Event->Attribute->typeIsAttachment($attribute['type'])) {
+                $attribute['data'] = $this->Event->Attribute->base64EncodeAttachment($attribute);
+            }
+        }
+
+        $event_id = $object[0]['Event']['id'];
+        $data = array('module' => $module, 'object' => $object[0]['Object'], 'event_id' => $event_id);
+        if (!empty($options)) {
+            $data['config'] = $options;
+        }
+        $result = $this->Module->queryModuleServer($data, false, $type, false, $object[0]);
+        if (!$result) {
+            throw new InternalErrorException(__('%s service not reachable.', $type));
+        }
+        if (isset($result['error'])) {
+            $this->Flash->error($result['error']);
+        }
+        if (!is_array($result)) {
+            throw new Exception($result);
+        }
+        $event = $this->Event->handleMispFormatFromModuleResult($result);
+        if (empty($event['Attribute']) && empty($event['Object'])) {
+            throw new NotImplementedException(__('No Attribute or Object returned by the module.'));
+        } else {
+            $importComment = !empty($result['comment']) ? $result['comment'] : $object[0]['Object']['value'] . __(': Enriched via the ') . $module . ($type != 'Enrichment' ? ' ' . $type : '')  . ' module';
+            $this->set('importComment', $importComment);
+            $event['Event'] = $object[0]['Event'];
             $org_name = $this->Event->Orgc->find('first', array(
                 'conditions' => array('Orgc.id' => $event['Event']['orgc_id']),
                 'fields' => array('Orgc.name')
@@ -5907,7 +6022,6 @@ class EventsController extends AppController
             $this->set('file_uploaded', "1");
             $this->set('file_name', $this->request['data']['Event']['analysis_file']['name']);
             $this->set('file_content', file_get_contents($this->request['data']['Event']['analysis_file']['tmp_name']));
-
         //$result = $this->Event->upload_mactime($this->Auth->user(), );
         } elseif ($this->request->is('post') && $this->request['data']['SelectedData']['mactime_data']) {
             // Find the event that is to be updated
@@ -5935,7 +6049,7 @@ class EventsController extends AppController
                     'meta-category' => 'file',
                     'description' => 'Mactime template, used in forensic investigations to describe the timeline of a file activity',
                     'template_version' => 1,
-                    'template_uuid' => '9297982e-be62-4772-a665-c91f5a8d639'
+                    'template_uuid' => '58149b06-eabe-4937-9dac-01d63f504e14'
                 );
 
                 $object['Attribute'] = array(
@@ -5998,7 +6112,7 @@ class EventsController extends AppController
 
                     );
                 $this->loadModel('MispObject');
-                $ObjectResult = $this->MispObject->saveObject($object, $eventId, "", "");
+                $ObjectResult = $this->MispObject->saveObject($object, $eventId, false, $this->Auth->user());
                 $temp = $this->MispObject->ObjectReference->Object->find('first', array(
                     'recursive' => -1,
                     'fields' => array('Object.uuid','Object.id'),

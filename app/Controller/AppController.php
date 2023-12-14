@@ -33,8 +33,8 @@ class AppController extends Controller
 
     public $helpers = array('OrgImg', 'FontAwesome', 'UserName');
 
-    private $__queryVersion = '150';
-    public $pyMispVersion = '2.4.171';
+    private $__queryVersion = '157';
+    public $pyMispVersion = '2.4.182';
     public $phpmin = '7.2';
     public $phprec = '7.4';
     public $phptoonew = '8.0';
@@ -222,8 +222,10 @@ class AppController extends Controller
             !$userLoggedIn &&
             (
                 $controller !== 'users' ||
-                $action !== 'register' ||
-                empty(Configure::read('Security.allow_self_registration'))
+                (
+                    ($action !== 'register' || empty(Configure::read('Security.allow_self_registration'))) &&
+                    (!in_array($action, ['forgot', 'password_reset']) || empty(Configure::read('Security.allow_password_forgotten')))
+                )
             )
         ) {
             // REST authentication
@@ -310,9 +312,13 @@ class AppController extends Controller
             $this->__accessMonitor($user);
 
         } else {
-            $preAuthActions = array('login', 'register', 'getGpgPublicKey', 'logout401');
+            $preAuthActions = array('login', 'register', 'getGpgPublicKey', 'logout401', 'otp');
             if (!empty(Configure::read('Security.email_otp_enabled'))) {
                 $preAuthActions[] = 'email_otp';
+            }
+            if (!empty(Configure::read('Security.allow_password_forgotten'))) {
+                $preAuthActions[] = 'forgot';
+                $preAuthActions[] = 'password_reset';
             }
             if (!$this->_isControllerAction(['users' => $preAuthActions, 'servers' => ['cspReport']])) {
                 if ($isAjax) {
@@ -394,13 +400,20 @@ class AppController extends Controller
         if (Configure::read('Security.allow_unsafe_apikey_named_param') && !empty($this->request->params['named']['apikey'])) {
             $namedParamAuthkey = $this->request->params['named']['apikey'];
         }
+        $apikey = null;
+        if (!empty($_SERVER['HTTP_AUTHORIZATION'])) {
+            $apikey = $_SERVER['HTTP_AUTHORIZATION'];
+        }
+        if (!empty($_SERVER['HTTP_X_MISP_AUTH'])) {
+            $apikey = $_SERVER['HTTP_X_MISP_AUTH'];
+        }
         // Authenticate user with authkey in Authorization HTTP header
-        if (!empty($_SERVER['HTTP_AUTHORIZATION']) && strcasecmp(substr($_SERVER['HTTP_AUTHORIZATION'], 0, 5), "Basic") == 0) { // Skip Basic Authorizations
+        if (!empty($apikey) && strcasecmp(substr($apikey, 0, 5), "Basic") == 0) { // Skip Basic Authorizations
             return null;
         }
-        if (!empty($_SERVER['HTTP_AUTHORIZATION']) || !empty($namedParamAuthkey)) {
+        if (!empty($apikey) || !empty($namedParamAuthkey)) {
             $foundMispAuthKey = false;
-            $authentication = explode(',', $_SERVER['HTTP_AUTHORIZATION']);
+            $authentication = explode(',', $apikey);
             if (!empty($namedParamAuthkey)) {
                 $authentication[] = $namedParamAuthkey;
             }
@@ -427,22 +440,19 @@ class AppController extends Controller
                     // User found in the db, add the user info to the session
                     if (Configure::read('MISP.log_auth')) {
                         $this->loadModel('Log');
-                        $this->Log->create();
-                        $log = array(
-                            'org' => $user['Organisation']['name'],
-                            'model' => 'User',
-                            'model_id' => $user['id'],
-                            'email' => $user['email'],
-                            'action' => 'auth',
-                            'title' => "Successful authentication using API key ($authKeyToStore)",
-                            'change' => 'HTTP method: ' . $_SERVER['REQUEST_METHOD'] . PHP_EOL . 'Target: ' . $this->request->here,
-                        );
-                        $this->Log->save($log);
+                        $this->UserLoginProfile = ClassRegistry::init('UserLoginProfile');
+                        $change = $this->UserLoginProfile->_getUserProfile();
+                        $change['http_method'] = $_SERVER['REQUEST_METHOD'];
+                        $change['target'] = $this->request->here;
+                        $this->Log->createLogEntry(
+                            $user,
+                            'auth',
+                            'User',
+                            $user['id'],
+                            "Successful authentication using API key ($authKeyToStore)",
+                            json_encode($change));
                     }
-                    $storeAPITime = Configure::read('MISP.store_api_access_time');
-                    if (!empty($storeAPITime) && $storeAPITime) {
-                        $this->User->updateAPIAccessTime($user);
-                    }
+                    $this->User->updateAPIAccessTime($user);
                     $this->Session->renew();
                     $this->Session->write(AuthComponent::$sessionKey, $user);
                     $this->isApiAuthed = true;
@@ -495,7 +505,6 @@ class AppController extends Controller
         if (!$userFromDb) {
             $message = __('Something went wrong. Your user account that you are authenticated with doesn\'t exist anymore.');
             if ($this->_isRest()) {
-                // TODO: Why not exception?
                 $response = $this->RestResponse->throwException(401, $message);
                 $response->send();
                 $this->_stop();
@@ -555,7 +564,9 @@ class AppController extends Controller
         if ($user['disabled'] || (isset($user['logged_by_authkey']) && $user['logged_by_authkey']) && !$this->User->checkIfUserIsValid($user)) {
             if ($this->_shouldLog('disabled:' . $user['id'])) {
                 $this->Log = ClassRegistry::init('Log');
-                $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], 'Login attempt by disabled user.');
+                $this->UserLoginProfile = ClassRegistry::init('UserLoginProfile');
+                $change = $this->UserLoginProfile->_getUserProfile();
+                $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], 'Login attempt by disabled user.', json_encode($change));
             }
 
             $this->Auth->logout();
@@ -574,8 +585,9 @@ class AppController extends Controller
             if ($user['authkey_expiration'] < $time) {
                 if ($this->_shouldLog('expired:' . $user['authkey_id'])) {
                     $this->Log = ClassRegistry::init('Log');
-                    $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], "Login attempt by expired auth key {$user['authkey_id']}.");
-                }
+                    $this->UserLoginProfile = ClassRegistry::init('UserLoginProfile');
+                    $change = $this->UserLoginProfile->_getUserProfile();
+                    $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], "Login attempt by expired auth key {$user['authkey_id']}.", json_encode($change));                }
                 $this->Auth->logout();
                 throw new ForbiddenException('Auth key is expired');
             }
@@ -592,8 +604,9 @@ class AppController extends Controller
             if (!$cidrTool->contains($remoteIp)) {
                 if ($this->_shouldLog('not_allowed_ip:' . $user['authkey_id'] . ':' . $remoteIp)) {
                     $this->Log = ClassRegistry::init('Log');
-                    $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], "Login attempt from not allowed IP address {$remoteIp} for auth key {$user['authkey_id']}.");
-                }
+                    $this->UserLoginProfile = ClassRegistry::init('UserLoginProfile');
+                    $change = $this->UserLoginProfile->_getUserProfile();
+                    $this->Log->createLogEntry($user, 'auth_fail', 'User', $user['id'], "Login attempt from not allowed IP address {$remoteIp} for auth key {$user['authkey_id']}.", json_encode($change));                }
                 $this->Auth->logout();
                 throw new ForbiddenException('It is not possible to use this Auth key from your IP address');
             }
@@ -603,6 +616,12 @@ class AppController extends Controller
         // Next checks makes sense just for user direct HTTP request, so skip REST and AJAX calls
         if (!$isUserRequest) {
             return true;
+        }
+
+        // Check if user must create TOTP secret, force them to be on that page as long as needed.
+        if (empty($user['totp']) && Configure::read('Security.otp_required') && !$this->_isControllerAction(['users' => ['terms', 'change_pw', 'logout', 'login', 'totp_new']])) {  // TOTP is mandatory for users, prevent login until the user has configured their TOTP
+            $this->redirect(array('controller' => 'users', 'action' => 'totp_new', 'admin' => false));
+            return false;
         }
 
         // Check if user accepted terms and conditions
@@ -954,6 +973,14 @@ class AppController extends Controller
         return $user;
     }
 
+    private function __captureParam($data, $param, $value)
+    {
+        if ($this->modelClass->checkParam($param)) {
+            $data[$param] = $value;
+        }
+        return $data;
+    }
+
     /**
      * generic function to standardise on the collection of parameters. Accepts posted request objects, url params, named url params
      * @param array $options
@@ -974,9 +1001,21 @@ class AppController extends Controller
                 return false;
             } else {
                 if (isset($request->data['request'])) {
-                    $data = array_merge($data, $request->data['request']);
+                    $temp = $request->data['request'];
                 } else {
-                    $data = array_merge($data, $request->data);
+                    $temp = $request->data;
+                }
+                if (empty($options['paramArray'])) {
+                    foreach ($options['paramArray'] as $param => $value) {
+                        $data = $this->__captureParam($data, $param, $value);
+                    }
+                    $data = array_merge($data, $temp);
+                } else {
+                    foreach ($options['paramArray'] as $param) {
+                        if (isset($temp[$param])) {
+                            $data[$param] = $temp[$param];
+                        }
+                    }
                 }
             }
         }
@@ -1076,7 +1115,7 @@ class AppController extends Controller
     {
         $result = false;
         if (Configure::read('Plugin.CustomAuth_enable')) {
-            $header = Configure::read('Plugin.CustomAuth_header') ? Configure::read('Plugin.CustomAuth_header') : 'Authorization';
+            $header = Configure::read('Plugin.CustomAuth_header') ? Configure::read('Plugin.CustomAuth_header') : 'AUTHORIZATION';
             $authName = Configure::read('Plugin.CustomAuth_name') ? Configure::read('Plugin.CustomAuth_name') : 'External authentication';
             if (
                 !Configure::check('Plugin.CustomAuth_use_header_namespace') ||
@@ -1093,55 +1132,49 @@ class AppController extends Controller
             if (isset($server[$headerNamespace . $header]) && !empty($server[$headerNamespace . $header])) {
                 if (Configure::read('Plugin.CustomAuth_only_allow_source') && Configure::read('Plugin.CustomAuth_only_allow_source') !== $this->_remoteIp()) {
                     $this->Log = ClassRegistry::init('Log');
-                    $this->Log->create();
-                    $log = array(
-                            'org' => 'SYSTEM',
-                            'model' => 'User',
-                            'model_id' => 0,
-                            'email' => 'SYSTEM',
-                            'action' => 'auth_fail',
-                            'title' => 'Failed authentication using external key (' . trim($server[$headerNamespace . $header]) . ') - the user has not arrived from the expected address. Instead the request came from: ' . $this->_remoteIp(),
-                            'change' => null,
-                    );
-                    $this->Log->save($log);
+                    $this->Log->createLogEntry(
+                        'SYSTEM',
+                        'auth_fail',
+                        'User',
+                        0,
+                        'Failed authentication using external key (' . trim($server[$headerNamespace . $header]) . ') - the user has not arrived from the expected address. Instead the request came from: ' . $this->_remoteIp(),
+                        null);
                     $this->__preAuthException($authName . ' authentication failed. Contact your MISP support for additional information at: ' . Configure::read('MISP.contact'));
                 }
                 $temp = $this->_checkExternalAuthUser($server[$headerNamespace . $header]);
                 $user['User'] = $temp;
                 if ($user['User']) {
                     $this->User->updateLoginTimes($user['User']);
-                    $this->Session->renew();
+                    //$this->Session->renew();
                     $this->Session->write(AuthComponent::$sessionKey, $user['User']);
                     if (Configure::read('MISP.log_auth')) {
                         $this->Log = ClassRegistry::init('Log');
-                        $this->Log->create();
-                        $log = array(
-                            'org' => $user['User']['Organisation']['name'],
-                            'model' => 'User',
-                            'model_id' => $user['User']['id'],
-                            'email' => $user['User']['email'],
-                            'action' => 'auth',
-                            'title' => 'Successful authentication using ' . $authName . ' key',
-                            'change' => 'HTTP method: ' . $_SERVER['REQUEST_METHOD'] . PHP_EOL . 'Target: ' . $this->request->here,
-                        );
-                        $this->Log->save($log);
+                        $this->UserLoginProfile = ClassRegistry::init('UserLoginProfile');
+                        $change = $this->UserLoginProfile->_getUserProfile();
+                        $change['http_method'] = $_SERVER['REQUEST_METHOD'];
+                        $change['target'] = $this->request->here;
+                        $this->Log->createLogEntry(
+                            $user,
+                            'auth',
+                            'User',
+                            $user['User']['id'],
+                            'Successful authentication using ' . $authName . ' key',
+                            json_encode($change));
                     }
                     $result = true;
                 } else {
                     // User not authenticated correctly
                     // reset the session information
                     $this->Log = ClassRegistry::init('Log');
-                    $this->Log->create();
-                    $log = array(
-                            'org' => 'SYSTEM',
-                            'model' => 'User',
-                            'model_id' => 0,
-                            'email' => 'SYSTEM',
-                            'action' => 'auth_fail',
-                            'title' => 'Failed authentication using external key (' . trim($server[$headerNamespace . $header]) . ')',
-                            'change' => null,
-                    );
-                    $this->Log->save($log);
+                    $this->UserLoginProfile = ClassRegistry::init('UserLoginProfile');
+                    $change = $this->UserLoginProfile->_getUserProfile();
+                    $this->Log->createLogEntry(
+                        'SYSTEM',
+                        'auth_fail',
+                        'User',
+                        0,
+                        'Failed authentication using external key (' . trim($server[$headerNamespace . $header]) . ')',
+                        json_encode($change));
                     if (Configure::read('CustomAuth_required')) {
                         $this->Session->destroy();
                         $this->__preAuthException($authName . ' authentication failed. Contact your MISP support for additional information at: ' . Configure::read('MISP.contact'));
@@ -1173,8 +1206,7 @@ class AppController extends Controller
 
     private function _redirectToLogin()
     {
-        $targetRoute = $this->Auth->loginAction;
-        $targetRoute['admin'] = false;
+        $targetRoute = Configure::read('MISP.baseurl') . '/users/login';
         $this->redirect($targetRoute);
     }
 

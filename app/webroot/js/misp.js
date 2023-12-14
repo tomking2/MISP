@@ -1523,6 +1523,7 @@ function cancelPopoverForm(id) {
     $("#screenshot_box").fadeOut(400, function() {
         $(this).remove();
     });
+    $('.tooltip').remove()
     $("#popover_box")
         .fadeOut()
         .removeAttr('style') // remove all inline styles
@@ -1998,9 +1999,9 @@ function choicePopup(legend, list) {
     openPopup("#popover_form");
 }
 
-function openModal(heading, body, footer, modal_option, css_container, css_body) {
+function openModal(heading, body, footer, modal_option, css_container, css_body, class_container) {
     var modal_id = 'dynamic_modal_' + new Date().getTime();
-    var modal_html = '<div id="' + modal_id + '" class="modal hide fade" style="' + (css_container !== undefined ? css_container : '') + '" tabindex="-1" role="dialog" aria-hidden="true">';
+    var modal_html = '<div id="' + modal_id + '" class="modal hide fade ' + (class_container !== undefined ? class_container : '') + '" style="' + (css_container !== undefined ? css_container : '') + '" tabindex="-1" role="dialog" aria-hidden="true">';
     if (heading !== undefined && heading !== '') {
         modal_html += '<div class="modal-header">'
                         + '<button type="button" class="close" data-dismiss="modal" aria-hidden="true">×</button>'
@@ -2303,7 +2304,7 @@ function runIndexQuickFilterFixed(preserveParams, url, target) {
         searchKey = 'searchall';
     }
     if ($quickFilterField.val().trim().length > 0) {
-        preserveParams[searchKey] = encodeURIComponent($quickFilterField.val().trim());
+        preserveParams[searchKey] = encodeURIComponent($quickFilterField.val().trim()).replace('%20', '+');
     } else {
         delete preserveParams[searchKey]
     }
@@ -5031,6 +5032,13 @@ $(document.body).on('click', '[data-popover-popup]', function (e) {
     popoverPopupNew(this, url);
 });
 
+$(document).ready(function () {
+    var d = new Date()
+    if (d.getDate() == 1 && d.getMonth() == 3) {
+        $("a:contains('tlp:unclear')").css('background-color', '#ffffff').addClass('special-tag')
+    }
+});
+
 function destroyPopovers($element) {
     $element.find('[data-dismissid]').each(function() {
         $(this).popover('destroy');
@@ -5508,6 +5516,29 @@ function resetDashboardGrid(grid, save = true) {
         grid.removeWidget(el);
         saveDashboardState();
     });
+    $('.widget-export-menu').find('a[data-exporttype]').click(function() {
+        var $element = $(this).closest('div[widget]');
+        var container_id = $element.attr('id').substring(7);
+        var export_type = $(this).data('exporttype')
+          $.ajax({
+            type: 'POST',
+            url: baseurl + '/dashboards/renderWidget/' + container_id + '/export' + export_type + ':1',
+            data: {
+                config: $element.attr('config'),
+                widget: $element.attr('widget')
+            },
+            success:function (data) {
+                if (export_type == 'json') {
+                    data = JSON.stringify(data, null, 2);
+                }
+                var blob = new Blob([data], { type: (export_type == 'json' ? 'application/json' : 'text/csv') });
+                var link=window.document.createElement('a');
+                link.href=window.URL.createObjectURL(blob);
+                link.download=$element.attr('widget') + "_" + container_id + "_export." + export_type;
+                link.click();
+            }
+        });
+    })
 }
 
 function setHomePage() {

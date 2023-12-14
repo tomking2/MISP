@@ -1,7 +1,6 @@
 <?php
     if (!empty($me)) {
         // New approach how to define menu requirements. It takes ACLs from ACLComponent.
-        // TODO: Use for every menu item
         $menu = array(
             array(
                 'type' => 'root',
@@ -410,9 +409,8 @@
                     ),
                     array(
                         'html' => sprintf(
-                            '<span style="display: flex;"><span>%s</span><span class="label label-info" style="margin-left: auto;">%s</span></span>',
-                            __('Workflows'),
-                            __('new')
+                            '<span style="display: flex;"><span>%s</span></span>',
+                            __('Workflows')
                         ),
                         'url' => $baseurl . '/workflows/triggers',
                         'requirement' => $isSiteAdmin
@@ -447,9 +445,8 @@
                     ],
                     [
                         'html' => sprintf(
-                            '<span style="display: flex;"><span>%s</span><span class="label label-info" style="margin-left: auto;">%s</span></span>',
-                            __('Over-correlating values'),
-                            __('new')
+                            '<span style="display: flex;"><span>%s</span></span>',
+                            __('Over-correlating values')
                         ),
                         'url' => $baseurl . '/correlations/overCorrelations',
                         'requirement' => $isSiteAdmin
@@ -468,7 +465,7 @@
                     array(
                         'text' => __('Audit Logs'),
                         'url' => $baseurl . '/admin/audit_logs/index',
-                        'requirement' => Configure::read('MISP.log_new_audit') && $isAdmin,
+                        'requirement' => Configure::read('MISP.log_new_audit') && $this->Acl->canAccess('auditLogs', 'admin_index'),
                     ),
                     array(
                         'text' => __('Access Logs'),
@@ -478,7 +475,7 @@
                     array(
                         'text' => __('Search Logs'),
                         'url' => $baseurl . '/admin/logs/search',
-                        'requirement' => $isAdmin
+                        'requirement' => $this->Acl->canAccess('logs', 'admin_search')
                     )
                 )
             ),
@@ -543,6 +540,20 @@
             )
         );
     }
+    $isHal = date('Y-10-31') == date('Y-m-d');
+    if ($isHal) {
+        $tmp = [
+            'type' => 'root',
+            'url'=> '#',
+            'html' => '<span onclick="toggleHal()" class="fa-stack fa-1x">
+                           <i class="fas fa-broom fa-stack-1x"></i>
+                           <i class="fas fa-cat fa-stack-1x fa-flip-horizontal" style="bottom: 8px; left: 2px;"></i>
+                       </span>'
+        ];
+        if (isset($menu_right)) {
+            $menu_right = array_merge([$tmp], $menu_right);
+        }
+    }
 ?>
 <div id="topBar" class="navbar navbar-inverse <?= isset($debugMode) ? $debugMode : 'debugOff' ?>" style="z-index:100;">
   <div class="navbar-inner">
@@ -564,5 +575,9 @@
             }
         ?>
     </ul>
-  </div>
 </div>
+  <?php
+    if ($isHal) {
+        echo $this->element('hal-ee');
+    }
+  ?>

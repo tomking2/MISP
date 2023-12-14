@@ -6,6 +6,7 @@ class Module_push_zmq extends WorkflowBaseActionModule
     public $blocking = false;
     public $id = 'push-zmq';
     public $name = 'Push to ZMQ';
+    public $version = '0.2';
     public $description = 'Push to the ZMQ channel';
     public $icon_path = 'zeromq.png';
     public $inputs = 1;
@@ -19,7 +20,7 @@ class Module_push_zmq extends WorkflowBaseActionModule
             [
                 'id' => 'data_extraction_path',
                 'label' => 'Data extraction path',
-                'type' => 'input',
+                'type' => 'hashpath',
                 'default' => '',
                 'placeholder' => 'Attribute.{n}.AttributeTag.{n}.Tag.name',
             ],
@@ -29,15 +30,15 @@ class Module_push_zmq extends WorkflowBaseActionModule
     public function exec(array $node, WorkflowRoamingData $roamingData, array &$errors=[]): bool
     {
         parent::exec($node, $roamingData, $errors);
-        $params = $this->getParamsWithValues($node);
-        $path = $params['match_condition']['value'];
-        $data = $roamingData->getData();
-        $extracted = $this->extractData($data, $path);
+        $rData = $roamingData->getData();
+        $params = $this->getParamsWithValues($node, $rData);
+        $path = $params['data_extraction_path']['value'];
+        $extracted = $this->extractData($rData, $path);
         if ($extracted === false) {
             $errors[] = __('Error while trying to extract data with path `%s`', $path);
             return false;
         }
-        $this->push_zmq(JsonTool::encode($extracted));
+        $this->push_zmq($extracted);
         return true;
     }
 }

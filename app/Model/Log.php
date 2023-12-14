@@ -26,6 +26,7 @@ class Log extends AppModel
                     'attachTags',
                     'auth',
                     'auth_fail',
+                    'auth_alert',
                     'blocklisted',
                     'captureRelations',
                     'change_pw',
@@ -44,6 +45,7 @@ class Log extends AppModel
                     'export',
                     'fetchEvent',
                     'file_upload',
+                    'forgot',
                     'galaxy',
                     'include_formula',
                     'load_module',
@@ -51,6 +53,7 @@ class Log extends AppModel
                     'login_fail',
                     'logout',
                     'merge',
+                    'password_reset',
                     'pruneUpdateLogs',
                     'publish',
                     'publish_sightings',
@@ -97,7 +100,7 @@ class Log extends AppModel
 
     public $logMeta = array(
         'email' => array('values' => array('email'), 'name' => 'Emails'),
-        'auth_issues' => array('values' => array('login_fail', 'auth_fail'), 'name' => 'Authentication issues')
+        'auth_issues' => array('values' => array('login_fail', 'auth_fail', 'auth_alert'), 'name' => 'Authentication issues')
     );
 
     public $logMetaAdmin = array(
@@ -1171,5 +1174,14 @@ class Log extends AppModel
             $this->elasticSearchClient = $client;
         }
         return $this->elasticSearchClient;
+    }
+
+    public function saveOrFailSilently($data, $options = null)
+    {
+        try {
+            return $this->save($data, $options);
+        } catch (Exception $e) {
+            return false;
+        }
     }
 }

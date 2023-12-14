@@ -462,6 +462,9 @@ class Feed extends AppModel
      */
     public function attachFeedCorrelations(array $attributes, array $user, array &$event, $overrideLimit = false, $scope = 'Feed')
     {
+        if (!isset($user['Role']['perm_view_feed_correlations']) || $user['Role']['perm_view_feed_correlations'] != true) {
+            return $attributes;
+        }
         if (empty($attributes)) {
             return $attributes;
         }
@@ -553,6 +556,13 @@ class Feed extends AppModel
         }
 
         $sources = $this->getCachedFeedsOrServers($user, $scope);
+        if ($scope == 'Server' && !$user['Role']['perm_site_admin'] && $user['org_id'] != Configure::read('MISP.host_org_id')) {
+            // Filter fields that shouldn't be visible to everyone
+            $allowedFieldsForAllUsers = array_flip(['id', 'name',]);
+            $sources = array_map(function($source) use($scope, $allowedFieldsForAllUsers) {
+                return [$scope => array_intersect_key($source[$scope], $allowedFieldsForAllUsers)];
+            }, $sources);
+        }
         foreach ($sources as $source) {
             $sourceId = $source[$scope]['id'];
 
@@ -580,6 +590,12 @@ class Feed extends AppModel
             // Append also exact MISP feed or server event UUID
             // TODO: This can be optimised in future to do that in one pass
             if ($sourceHasHit && ($scope === 'Server' || $source[$scope]['source_format'] === 'misp')) {
+                if (
+                    $scope === 'Server' &&
+                    !$user['Role']['perm_site_admin'] && $user['org_id'] != Configure::read('MISP.host_org_id')
+                ) {
+                    continue; // Non-privileged users cannot see the hits for server
+                }
                 $pipe = $redis->pipeline();
                 $eventUuidHitPosition = [];
                 foreach ($hitIds as $sourceHitPos => $k) {
@@ -2142,7 +2158,7 @@ class Feed extends AppModel
         }
         $this->Log = ClassRegistry::init('Log');
         $this->Log->create();
-        $this->Log->save(array(
+        $this->Log->saveOrFailSilently(array(
             'org' => 'SYSTEM',
             'model' => 'Feed',
             'model_id' => $id,

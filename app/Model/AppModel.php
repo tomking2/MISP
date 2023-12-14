@@ -84,7 +84,9 @@ class AppModel extends Model
         87 => false, 88 => false, 89 => false, 90 => false, 91 => false, 92 => false,
         93 => false, 94 => false, 95 => true, 96 => false, 97 => true, 98 => false,
         99 => false, 100 => false, 101 => false, 102 => false, 103 => false, 104 => false,
-        105 => false, 106 => false, 107 => false, 108 => false,
+        105 => false, 106 => false, 107 => false, 108 => false, 109 => false, 110 => false,
+        111 => false, 112 => false, 113 => true, 114 => false, 115 => false, 116 => false,
+        117 => false, 118 => false
     );
 
     const ADVANCED_UPDATES_DESCRIPTION = array(
@@ -309,7 +311,7 @@ class AppModel extends Model
         } else {
             $entry['change'] = 'Tried adding new feeds but something went wrong.';
         }
-        $this->Log->save($entry);
+        $this->Log->saveOrFailSilently($entry);
     }
 
     // SQL scripts for updates
@@ -1950,6 +1952,60 @@ class AppModel extends Model
             case 108:
                 $sqlArray[] = "ALTER TABLE `workflows` MODIFY `data` LONGTEXT;";
                 break;
+            case 109:
+                $sqlArray[] = "UPDATE `over_correlating_values` SET `value` = LOWER(`value`) COLLATE utf8mb4_unicode_ci;";
+                break;
+            case 110:
+                $sqlArray[] = "ALTER TABLE `users` ADD `totp` varchar(255) DEFAULT NULL;";
+                $sqlArray[] = "ALTER TABLE `users` ADD `hotp_counter` int(11) DEFAULT NULL;";
+                break;
+            case 111:
+                $sqlArray[] = "ALTER TABLE `taxii_servers` ADD `collection` varchar(40) CHARACTER SET ascii DEFAULT NULL;";
+                break;
+            case 112:
+                $sqlArray[] = "ALTER TABLE `roles` ADD `perm_view_feed_correlations` tinyint(1) NOT NULL DEFAULT 0;";
+                break;
+            case 113:
+                // we only want to update the existing roles - going forward the default is still 0
+                // Also, we want to execute it as a separate update to ensure that cache clearing is done correctly
+                $this->cleanCacheFiles();
+                $sqlArray[] = "UPDATE roles SET perm_view_feed_correlations = 1;";
+                break;
+            case 114:
+                $indexArray[] = ['object_references', 'uuid'];
+                break;
+            case 115:
+                $sqlArray[] = "ALTER TABLE `users` ADD COLUMN `last_pw_change` BIGINT(20) NULL DEFAULT NULL;";
+                $sqlArray[] = "UPDATE `users` SET last_pw_change=date_modified WHERE last_pw_change IS NULL";
+                break;
+            case 116:
+                $sqlArray[] = "ALTER TABLE `event_reports` modify `content` mediumtext";
+                break;
+            case 117:
+                $sqlArray[] = "CREATE TABLE `user_login_profiles` (
+                    `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+                    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    `user_id` int(11) NOT NULL,
+                    `status` varchar(191) DEFAULT NULL,
+                    `ip` varchar(191) DEFAULT NULL,
+                    `user_agent` varchar(191) DEFAULT NULL,
+                    `accept_lang` varchar(191) DEFAULT NULL,
+                    `geoip` varchar(191) DEFAULT NULL,
+                    `ua_platform` varchar(191) DEFAULT NULL,
+                    `ua_browser` varchar(191) DEFAULT NULL,
+                    `ua_pattern` varchar(191) DEFAULT NULL,
+                    `hash` varchar(32) COLLATE utf8mb4_unicode_ci NOT NULL,
+                    PRIMARY KEY (`id`),
+                    UNIQUE KEY `hash` (`hash`),
+                    KEY `ip` (`ip`),
+                    KEY `status` (`status`),
+                    KEY `geoip` (`geoip`),
+                    INDEX `user_id` (`user_id`)
+                  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;";
+                break;
+            case 118:
+                $sqlArray[] = "ALTER TABLE `event_reports` MODIFY `content` mediumtext;";
+                break;
             case 'fixNonEmptySharingGroupID':
                 $sqlArray[] = 'UPDATE `events` SET `sharing_group_id` = 0 WHERE `distribution` != 4;';
                 $sqlArray[] = 'UPDATE `attributes` SET `sharing_group_id` = 0 WHERE `distribution` != 4;';
@@ -2070,7 +2126,7 @@ class AppModel extends Model
                     $this->__setUpdateProgress($i, false);
                     $this->query($sql);
                     $this->Log->create();
-                    $this->Log->save(array(
+                    $this->Log->saveOrFailSilently(array(
                         'org' => 'SYSTEM',
                         'model' => 'Server',
                         'model_id' => 0,
@@ -2105,7 +2161,7 @@ class AppModel extends Model
                     } else {
                         $logMessage['change'] = $logMessage['change'] . PHP_EOL . __('However, as this error is allowed, the update went through.');
                     }
-                    $this->Log->save($logMessage);
+                    $this->Log->saveOrFailSilently($logMessage);
                 }
             }
         }
@@ -2147,7 +2203,7 @@ class AppModel extends Model
         }
         if ($flagStop && $errorCount > 0) {
             $this->Log->create();
-            $this->Log->save(array(
+            $this->Log->saveOrFailSilently(array(
                 'org' => 'SYSTEM',
                 'model' => 'Server',
                 'model_id' => 0,
@@ -2223,7 +2279,7 @@ class AppModel extends Model
                 $result = false;
             }
             $this->Log->create();
-            $this->Log->save(array(
+            $this->Log->saveOrFailSilently(array(
                 'org' => 'SYSTEM',
                 'model' => 'Server',
                 'model_id' => 0,
@@ -2260,7 +2316,7 @@ class AppModel extends Model
             $result = false;
         }
         $this->Log->create();
-        $this->Log->save(array(
+        $this->Log->saveOrFailSilently(array(
             'org' => 'SYSTEM',
             'model' => 'Server',
             'model_id' => 0,
@@ -2421,7 +2477,7 @@ class AppModel extends Model
                 // is only to limit the load.
                 if ($this->isUpdateLocked()) { // prevent creation of useless workers
                     $this->Log->create();
-                    $this->Log->save(array(
+                    $this->Log->saveOrFailSilently(array(
                         'org' => 'SYSTEM',
                         'model' => 'Server',
                         'model_id' => 0,
@@ -2478,7 +2534,7 @@ class AppModel extends Model
                 // (could happens if multiple prio workers are up)
                 if ($this->isUpdateLocked()) {
                     $this->Log->create();
-                    $this->Log->save(array(
+                    $this->Log->saveOrFailSilently(array(
                         'org' => 'SYSTEM',
                         'model' => 'Server',
                         'model_id' => 0,
@@ -3265,25 +3321,32 @@ class AppModel extends Model
             foreach ($filters as $f) {
                 if ($f === -1) {
                     foreach ($keys as $key) {
-                        $temp['OR'][$key][] = -1;
+                        if ($this->checkParam($key)) {
+                            $temp['OR'][$key][] = -1;
+                        }
                     }
                     continue;
                 }
                 // split the filter params into two lists, one for substring searches one for exact ones
                 if (is_string($f) && ($f[strlen($f) - 1] === '%' || $f[0] === '%')) {
                     foreach ($keys as $key) {
-                        if ($operator === 'NOT') {
-                            $temp[] = array($key . ' NOT LIKE' => $f);
-                        } else {
-                            $temp[] = array($key . ' LIKE' => $f);
+                        if ($this->checkParam($key)) {
+                            if ($operator === 'NOT') {
+                                $temp[] = array($key . ' NOT LIKE' => $f);
+                            } else {
+                                $temp[] = array($key . ' LIKE' => $f);
+                                $temp[] = array($key => $f);
+                            }
                         }
                     }
                 } else {
                     foreach ($keys as $key) {
-                        if ($operator === 'NOT') {
-                            $temp[$key . ' !='][] = $f;
-                        } else {
-                            $temp['OR'][$key][] = $f;
+                        if ($this->checkParam($key)) {
+                            if ($operator === 'NOT') {
+                                $temp[$key . ' !='][] = $f;
+                            } else {
+                                $temp['OR'][$key][] = $f;
+                            }
                         }
                     }
                 }
@@ -3311,10 +3374,12 @@ class AppModel extends Model
             $filter = array();
             foreach ($temp as $f) {
                 $f = strval($f);
-                if ($f[0] === '!') {
-                    $filter['NOT'][] = substr($f, 1);
-                } else {
-                    $filter['OR'][] = $f;
+                if ($f !== '') {
+                    if ($f[0] === '!') {
+                        $filter['NOT'][] = substr($f, 1);
+                    } else {
+                        $filter['OR'][] = $f;
+                    }
                 }
             }
             return $filter;
@@ -3429,7 +3494,7 @@ class AppModel extends Model
                 'title' => 'Bumped the timestamps of locked events containing object references.',
                 'change' => sprintf('Event timestamps updated: %s; Object timestamps updated: %s', count($event_ids), count($object_ids))
             );
-            $this->Log->save($entry);
+            $this->Log->saveOrFailSilently($entry);
         }
         return true;
     }
@@ -3590,6 +3655,11 @@ class AppModel extends Model
      */
     protected function logException($message, Exception $exception, $type = LOG_ERR)
     {
+        // If Sentry is installed, send exception to Sentry
+        if (function_exists('\Sentry\captureException') && $type === LOG_ERR) {
+            \Sentry\captureException($exception);
+        }
+
         $message .= "\n";
 
         do {
@@ -3957,5 +4027,38 @@ class AppModel extends Model
             return trim($_SERVER[$ipHeader]);
         }
         return $_SERVER['REMOTE_ADDR'] ?? null;
+    }
+
+    public function find($type = 'first', $query = array()) {
+        if (!empty($query['order']) && $this->validOrderClause($query['order']) === false) {
+            throw new InvalidArgumentException('Invalid order clause');
+        }
+
+        return parent::find($type, $query);
+    }
+
+    private function validOrderClause($order){
+        $pattern = '/^[\w\_\-\.\(\) ]+$/';
+        if(is_string($order) && preg_match($pattern, $order)){
+            return true;
+        }
+
+        if (is_array($order)) {
+            foreach ($order as $key => $value) {
+                if (is_string($key) && is_string($value) && preg_match($pattern, $key) && in_array(strtolower($value), ['asc', 'desc'])) {
+                    return true;
+                }
+                if(is_numeric($key) && is_string($value) && preg_match($pattern, $value)){
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    public function checkParam($param)
+    {
+        return preg_match('/^[\w\_\-\. ]+$/', $param);
     }
 }
