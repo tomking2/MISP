@@ -78,7 +78,7 @@ class JSONConverterTool
             unset($event['Sighting']);
         }
         if (isset($event['Event']['Attribute'])) {
-            $event['Event']['Attribute'] = self::__cleanAttributes($event['Event']['Attribute'], $tempSightings);
+            $event['Event']['Attribute'] = self::__cleanAttributes($event['Event']['Attribute'], $tempSightings, $event);
             if (!empty($event['Event']['RelatedAttribute'])) {
                 foreach ($event['Event']['Attribute'] as $k => $attribute) {
                     if (isset($event['Event']['RelatedAttribute'][$attribute['id']])) {
@@ -96,7 +96,7 @@ class JSONConverterTool
             }
         }
         if (isset($event['Event']['Object'])) {
-            $event['Event']['Object'] = self::__cleanObjects($event['Event']['Object'], $tempSightings);
+            $event['Event']['Object'] = self::__cleanObjects($event['Event']['Object'], $tempSightings, $event);
             if (!empty($event['Event']['RelatedAttribute'])) {
                 foreach ($event['Event']['Object'] as $k => $object) {
                     foreach ($event['Event']['Attribute'] as $k2 => $attribute) {
