@@ -144,6 +144,7 @@ class Log extends AppModel
         if (Configure::read('MISP.log_client_ip')) {
             $this->data['Log']['ip'] = $this->_remoteIp();
         }
+        $this->data['Log']['request_is_rest'] = Configure::read('CurrentRequestIsRest');
         $setEmpty = array('title' => '', 'model' => '', 'model_id' => 0, 'action' => '', 'user_id' => 0, 'change' => '', 'email' => '', 'org' => '', 'description' => '', 'ip' => '');
         foreach ($setEmpty as $field => $empty) {
             if (empty($this->data['Log'][$field])) {
@@ -257,6 +258,11 @@ class Log extends AppModel
                 $output[] = "$field ($oldValue) => ($newValue)";
             }
             $change = implode(", ", $output);
+        }
+
+        // If Sentry is installed, send log breadcrumb to Sentry
+        if (function_exists('\Sentry\addBreadcrumb')) {
+            \Sentry\addBreadcrumb('log', $title, [], Sentry\Breadcrumb::LEVEL_INFO);
         }
 
         $this->create();
@@ -431,15 +437,14 @@ class Log extends AppModel
                 }
             }
 
-            $entry = $data['Log']['action'];
-            if (!empty($data['Log']['title'])) {
-                $entry .= " -- {$data['Log']['title']}";
-            }
-            if (!empty($data['Log']['description'])) {
-                $entry .= " -- {$data['Log']['description']}";
-            } else if (!empty($data['Log']['change'])) {
-                $entry .= " -- " . JsonTool::encode($data['Log']['change']);
-            }
+            $entry = sprintf(
+                '%s -- %s -- %s',
+                $data['Log']['action'],
+                empty($data['Log']['title']) ? '' : $formatted_title = preg_replace('/\s+/', " ", $data['Log']['title']),
+                empty($data['Log']['description']) ? 
+                    (empty($data['Log']['change']) ? '' : preg_replace('/\s+/', " ", $data['Log']['change'])) :
+                    preg_replace('/\s+/', " ", $data['Log']['description'])
+            );
             $this->syslog->write($action, $entry);
         }
     }

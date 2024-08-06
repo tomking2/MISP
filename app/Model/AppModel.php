@@ -91,7 +91,7 @@ class AppModel extends Model
         105 => false, 106 => false, 107 => false, 108 => false, 109 => false, 110 => false,
         111 => false, 112 => false, 113 => true, 114 => false, 115 => false, 116 => false,
         117 => false, 118 => false, 119 => false, 120 => false, 121 => false, 122 => false,
-        123 => false,
+        123 => false, 124 => false, 125 => false, 126 => false, 127 => false, 128 => false
     );
 
     const ADVANCED_UPDATES_DESCRIPTION = array(
@@ -2164,6 +2164,54 @@ class AppModel extends Model
                 $sqlArray[] = 'ALTER TABLE `opinions` MODIFY `modified` datetime NOT NULL;';
                 $sqlArray[] = 'ALTER TABLE `relationships` MODIFY `modified` datetime NOT NULL;';
                 break;
+            case 124:
+                $sqlArray[] = 'CREATE TABLE IF NOT EXISTS `sighting_blocklists` (
+                    `id` int(11) NOT NULL AUTO_INCREMENT,
+                    `org_uuid` varchar(40) COLLATE utf8_bin NOT NULL,
+                    `created` datetime NOT NULL,
+                    `org_name` varchar(255) COLLATE utf8_bin NOT NULL,
+                    `comment` TEXT CHARACTER SET utf8 COLLATE utf8_unicode_ci,
+                    PRIMARY KEY (`id`),
+                    INDEX `org_uuid` (`org_uuid`),
+                    INDEX `org_name` (`org_name`)
+                  ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;';
+                break;
+            case 125:
+                $sqlArray[] = "ALTER TABLE `feeds` ADD COLUMN `tag_collection_id` INT(11) NOT NULL DEFAULT 0;";
+                break;
+            case 126:
+                $sqlArray[] = "ALTER TABLE `roles` ADD `perm_skip_otp` tinyint(1) NOT NULL DEFAULT 0;";
+                break;
+            case 127:
+                $sqlArray[] = 'CREATE TABLE IF NOT EXISTS `bookmarks` (
+                    `id` int(11) NOT NULL AUTO_INCREMENT,
+                    `user_id` int(10) unsigned NOT NULL,
+                    `org_id` int(10) unsigned NOT NULL,
+                    `name` varchar(191) NOT NULL,
+                    `url` varchar(255) NOT NULL,
+                    `exposed_to_org` tinyint(1) NOT NULL DEFAULT 0,
+                    PRIMARY KEY (`id`),
+                    INDEX `user_id` (`user_id`),
+                    INDEX `org_id` (`org_id`),
+                    INDEX `name` (`name`)
+                  ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;';
+                break;
+            case 128:
+                $sqlArray[] = 'CREATE TABLE IF NOT EXISTS `correlation_rules` (
+                    `id` int(11) NOT NULL AUTO_INCREMENT,
+                    `uuid` varchar(40) CHARACTER SET ascii COLLATE ascii_general_ci NOT NULL,
+                    `name` varchar(191) NOT NULL,
+                    `comment` text,
+                    `selector_type` varchar(40) NOT NULL,
+                    `selector_list` text,
+                    `created` int(11) NOT NULL DEFAULT (UNIX_TIMESTAMP()),
+                    `timestamp` int(11) NOT NULL DEFAULT 0,
+                    PRIMARY KEY (`id`),
+                    INDEX `uuid` (`uuid`),
+                    INDEX `name` (`name`),
+                    INDEX `selector_type` (`selector_type`)
+                  ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin;';
+                break;
             case 'fixNonEmptySharingGroupID':
                 $sqlArray[] = 'UPDATE `events` SET `sharing_group_id` = 0 WHERE `distribution` != 4;';
                 $sqlArray[] = 'UPDATE `attributes` SET `sharing_group_id` = 0 WHERE `distribution` != 4;';
@@ -3544,13 +3592,15 @@ class AppModel extends Model
         if (!isset($filter['OR']) && !isset($filter['NOT']) && !isset($filter['AND'])) {
             $temp = array();
             foreach ($filter as $param) {
-                $param = strval($param);
-                if (!empty($param)) {
-                    if ($param[0] === '!') {
-                        $temp['NOT'][] = substr($param, 1);
+                $paramString = strval($param);
+                if (!empty($paramString)) {
+                    if ($paramString[0] === '!') {
+                        $temp['NOT'][] = substr($paramString, 1);
                     } else {
-                        $temp['OR'][] = $param;
+                        $temp['OR'][] = $paramString;
                     }
+                } else if (isset($param)) {
+                    $temp['OR'][] = strval($param);
                 }
             }
             $filter = $temp;
@@ -3813,7 +3863,7 @@ class AppModel extends Model
     protected function logException($message, Exception $exception, $type = LOG_ERR)
     {
         // If Sentry is installed, send exception to Sentry
-        if (function_exists('\Sentry\captureException') && $type === LOG_ERR) {
+        if (function_exists('\Sentry\captureException') && $type <= LOG_ERR) {
             \Sentry\captureException(new Exception($message, $type, $exception));
         }
 

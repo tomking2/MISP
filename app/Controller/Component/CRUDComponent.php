@@ -289,6 +289,9 @@ class CRUDComponent extends Component
                 }
             }
         }
+        if (isset($params['afterFind'])) {
+            $data = $params['afterFind']($data);
+        }
         if (isset($params['beforeDelete'])) {
             $data = $params['beforeDelete']($data);
             if (empty($data)) {
@@ -311,7 +314,7 @@ class CRUDComponent extends Component
                     return;
                 } else {
                     $this->Controller->Flash->success($message);
-                    $this->Controller->redirect($this->Controller->referer());
+                    $this->Controller->redirect($this->Controller->referer(['action' => 'index']));
                 }
             }
         }

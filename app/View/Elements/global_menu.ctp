@@ -11,6 +11,28 @@ if (!empty($me)) {
         $logoHtml = __('Home');
     }
 
+    // Build bookmarks
+    $topbarBookmarks = [];
+    foreach ($bookmarks as $bookmark) {
+        $topbarBookmarks[] = [
+            'html' => sprintf('<i class="fas fa-link fa-fw"></i> %s', h($bookmark['Bookmark']['name'])),
+            'url' => h($bookmark['Bookmark']['url']),
+        ];
+    }
+    $topbarBookmarks[] = ['type' => 'separator'];
+    $topbarBookmarks[] = [
+        'html' => sprintf('<span id="bookmarkThisPageContainer" data-current-page="%s"><i class="fas fa-plus fa-fw"></i> %s</span>',
+           $baseurl .  h($this->here),
+            __('Bookmark this page')
+        ),
+        'requirement' => $this->Acl->canAccess('bookmarks', 'add'),
+    ];
+    $topbarBookmarks[] = [
+        'html' => sprintf('<i class="fas fa-cogs fa-fw"></i> %s', __('Manage Bookmarks')),
+        'url' => $baseurl . '/bookmarks/index',
+        'requirement' => $this->Acl->canAccess('bookmarks', 'add'),
+    ];
+
     // New approach how to define menu requirements. It takes ACLs from ACLComponent.
     $menu = array(
         array(
@@ -408,6 +430,11 @@ if (!empty($me)) {
                     'url' => $baseurl . '/servers/serverSettings',
                     'requirement' => $isSiteAdmin
                 ),
+                [
+                    'text' => __('Benchmarking'),
+                    'url' => $baseurl . '/benchmarks/index',
+                    'requirement' => $isSiteAdmin && Configure::read('Plugin.Benchmarking_enable')
+                ],
                 array(
                     'type' => 'separator',
                     'requirement' => $isSiteAdmin
@@ -456,6 +483,11 @@ if (!empty($me)) {
                 [
                     'text' => __('Top Correlations'),
                     'url' => $baseurl . '/correlations/top',
+                    'requirement' => $isSiteAdmin
+                ],
+                [
+                    'text' => __('Correlation rules'),
+                    'url' => $baseurl . '/correlationRules/index',
                     'requirement' => $isSiteAdmin
                 ],
                 [
@@ -513,6 +545,11 @@ if (!empty($me)) {
     $menu_right = array(
         array(
             'type' => 'root',
+            'html' => sprintf('%s <i class="fas fa-caret-down"></i>', __('Bookmarks')),
+            'children' => $topbarBookmarks,
+        ),
+        array(
+            'type' => 'root',
             'url' => '#',
             'html' => sprintf(
                 '<span class="fas fa-star %s" id="setHomePage" title="%s" role="img" aria-label="%s" data-current-page="%s"></span>',
@@ -535,7 +572,7 @@ if (!empty($me)) {
         ],
         array(
             'type' => 'root',
-            'url' => $baseurl . '/dashboards',
+            'url' => $baseurl . '/users/view/me',
             'html' => sprintf(
                 '<span class="white" title="%s">%s%s&nbsp;&nbsp;&nbsp;%s</span>',
                 h($me['email']),

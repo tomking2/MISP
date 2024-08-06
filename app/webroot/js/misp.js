@@ -3780,7 +3780,7 @@ function findObjectByUuid(uuid) {
     $('#attributeList tr').each(function () {
         var trId = $(this).attr('id');
         if (trId && (trId.startsWith("Object") || trId.startsWith("Attribute") || trId.startsWith('proposal'))) {
-            var objectUuid = $('.uuid', this).text().trim();
+            var objectUuid = $(this).data('uuid');
             if (objectUuid === uuid) {
                 $tr = $(this);
                 return false;
@@ -5021,6 +5021,8 @@ $(document).ready(function () {
     if (d.getDate() == 1 && d.getMonth() == 3) {
         $("a:contains('tlp:unclear')").css('background-color', '#ffffff').addClass('special-tag')
     }
+
+    $('#bookmarkThisPageContainer').click(addCurrentPageToBookmark)
 });
 
 function destroyPopovers($element) {
@@ -5385,6 +5387,18 @@ function submitDashboardAddWidget() {
     var height = $('#DashboardHeight').val();
     var el = null;
     var k = $('#last-element-counter').data('element-counter');
+
+    if (config === '') {
+        config = '[]'
+    }
+    try {
+        config = JSON.parse(config);
+    } catch (error) {
+        showMessage('fail', error.message)
+        return
+    }
+    config = JSON.stringify(config);
+
     $.ajax({
         url: baseurl + '/dashboards/getEmptyWidget/' + widget + '/' + (k+1),
         type: 'GET',
@@ -5398,14 +5412,7 @@ function submitDashboardAddWidget() {
                     "autoposition": 1
                 }
             );
-            if (config !== '') {
-                config = JSON.parse(config);
-                config = JSON.stringify(config);
-            } else {
-                config = '[]';
-            }
             $('#widget_' + (k+1)).attr('config', config);
-            saveDashboardState();
             $('#last-element-counter').data('element-counter', (k+1));
         },
         complete: function(data) {
@@ -5544,6 +5551,34 @@ function setHomePage() {
             });
 
         }
+    });
+}
+
+function addCurrentPageToBookmark() {
+    var url = baseurl + '/bookmarks/add'
+    fetchFormDataAjax(url, function (formData) {
+        var $formData = $(formData);
+        var currentPage = $('#bookmarkThisPageContainer').data('current-page');
+        var pageTitle = document.title;
+        $formData.find('#BookmarkUrl').val(currentPage);
+        $formData.find('#BookmarkName').val(pageTitle);
+        $.ajax({
+            data: $formData.find('form').serialize(),
+            beforeSend: function () {
+                $(".loading").show();
+            },
+            success: function (data) {
+                showMessage('success', 'Bookmark successfully added');
+            },
+            error: function () {
+                showMessage('fail', 'Could not add current page to list of bookmark');
+            },
+            complete: function () {
+                $(".loading").hide();
+            },
+            type: "post",
+            url: $formData.find('form').attr('action')
+        });
     });
 }
 

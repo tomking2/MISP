@@ -406,6 +406,7 @@ class MispObject extends AppModel
         foreach ($attributeArray as $attribute) {
             $newObjectAttributes[] = $this->getObjectAttributeHash($attribute);
         }
+        // Check for duplicate objects in the current data-set of new objects
         $newObjectAttributeCount = count($newObjectAttributes);
         if (!empty($this->__objectDuplicationCheckCache['new'][$object['Object']['template_uuid']])) {
             foreach ($this->__objectDuplicationCheckCache['new'][$object['Object']['template_uuid']] as $previousNewObject) {
@@ -419,7 +420,6 @@ class MispObject extends AppModel
             }
         }
         $this->__objectDuplicationCheckCache['new'][$object['Object']['template_uuid']][] = $newObjectAttributes;
-
         if (!isset($this->__objectDuplicationCheckCache[$object['Object']['template_uuid']])) {
             $this->__objectDuplicationCheckCache[$object['Object']['template_uuid']] = $this->find('all', array(
                 'recursive' => -1,
@@ -510,7 +510,8 @@ class MispObject extends AppModel
             }
         }
         $this->create();
-        if ($this->save($object)) {
+        $saveResult = $this->save($object);
+        if ($saveResult) {
             $result = $this->id;
             foreach ($object['Attribute'] as $k => $attribute) {
                 $object['Attribute'][$k]['object_id'] = $this->id;
@@ -528,6 +529,7 @@ class MispObject extends AppModel
                 }
             }
             $this->Attribute->saveAttributes($object['Attribute'], $user);
+            $this->Event->captureAnalystData($user, $object['Object'], 'Object', $saveResult['Object']['uuid']);
         } else {
             $result = $this->validationErrors;
         }
@@ -1001,6 +1003,8 @@ class MispObject extends AppModel
             return $this->validationErrors;
         }
 
+        $this->Event->captureAnalystData($user, $objectToSave['Object'], 'Object', $saveResult['Object']['uuid']);
+
         if (!$onlyAddNewAttribute) {
             $checkFields = array('category', 'value', 'to_ids', 'distribution', 'sharing_group_id', 'comment', 'disable_correlation', 'first_seen', 'last_seen');
             if (!empty($objectToSave['Attribute'])) {
@@ -1139,7 +1143,15 @@ class MispObject extends AppModel
                 $this->Attribute->captureAttribute($attribute, $eventId, $user, $objectId, false, $parentEvent);
             }
         }
-        $this->Event->captureAnalystData($user, $object['Object']);
+        if (empty($object['Object']['uuid'])) {
+            $t = $this->find('first', [
+                'recursive' => -1,
+                'fields' => ['uuid'],
+                'conditions' => ['id' => $objectId]
+            ]);
+            $object['Object']['uuid'] = $t['Object']['uuid'];
+        }
+        $this->Event->captureAnalystData($user, $object['Object'], 'Object', $object['Object']['uuid']);
         return true;
     }
 
@@ -1219,7 +1231,7 @@ class MispObject extends AppModel
             );
             return $this->validationErrors;
         }
-        $this->Event->captureAnalystData($user, $object);
+        $this->Event->captureAnalystData($user, $object, 'Object', $object['uuid']);
         if (!empty($object['Attribute'])) {
             $attributes = [];
             foreach ($object['Attribute'] as $attribute) {
@@ -1617,7 +1629,7 @@ class MispObject extends AppModel
         if (isset($filters['page'])) {
             $params['page'] = $filters['page'];
         }
-        if (!empty($filters['deleted'])) {
+        if (isset($filters['deleted'])) {
             $params['deleted'] = $filters['deleted'];
         }
         if (!empty($filters['excludeDecayed'])) {
