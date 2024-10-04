@@ -1679,6 +1679,7 @@ class Server extends AppModel
                     return $leafValue;
                 }
             }
+
             if (!empty($leafValue['test'])) {
                 if ($leafValue['test'] instanceof Closure) {
                     $result = $leafValue['test']($setting);
@@ -1690,6 +1691,8 @@ class Server extends AppModel
                     if ($result !== false) {
                         $leafValue['errorMessage'] = $result;
                     }
+                } else {
+                    $leafValue['errorMessage'] = null;
                 }
             }
             if (isset($leafValue['optionsSource'])) {
@@ -2455,7 +2458,7 @@ class Server extends AppModel
      * @return mixed|string|true|null
      * @throws Exception
      */
-    public function serverSettingsEditValue($user, array $setting, $value, $forceSave = false)
+    public function serverSettingsEditValue($user, array $setting, $value, $forceSave = false, $cli = false)
     {
         if (isset($setting['beforeHook'])) {
             $beforeResult = $this->{$setting['beforeHook']}($setting['name'], $value);
@@ -2496,8 +2499,11 @@ class Server extends AppModel
             return $errorMessage;
         }
         $oldValue = Configure::read($setting['name']);
-        $fileOnly = isset($setting['cli_only']) && $setting['cli_only'];
-        $settingSaveResult = $this->serverSettingsSaveValue($setting['name'], $value, $fileOnly);
+        $cliOnly = isset($setting['cli_only']) && $setting['cli_only'];
+        if (!$cli && $cliOnly) {
+            return __('This setting can only changed via the CLI. Change request ignored.');
+        }
+        $settingSaveResult = $this->serverSettingsSaveValue($setting['name'], $value);
         if ($settingSaveResult) {
             if (SystemSetting::isSensitive($setting['name'])) {
                 $change = array($setting['name'] => array('*****', '*****'));
@@ -6862,6 +6868,14 @@ class Server extends AppModel
                 'username_in_response_header' => [
                     'level' => self::SETTING_OPTIONAL,
                     'description' => __('When enabled, logged in username will be included in X-Username HTTP response header. This is useful for request logging on webserver/proxy side.'),
+                    'value' => false,
+                    'test' => 'testBool',
+                    'type' => 'boolean',
+                    'null' => true
+                ],
+                'user_org_uuid_in_response_header' => [
+                    'level' => self::SETTING_OPTIONAL,
+                    'description' => __('When enabled, logged in user\'s organisation uuid will be included in X-UserOrgUUID HTTP response header.'),
                     'value' => false,
                     'test' => 'testBool',
                     'type' => 'boolean',

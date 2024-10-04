@@ -183,7 +183,7 @@ class Attribute extends AppModel
     // This helps generate quick filtering for the event view, but we may reuse this and enhance it in the future for other uses (such as the API?)
     const TYPE_GROUPINGS = [
         'file' => ['attachment', 'pattern-in-file', 'filename-pattern', 'md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512', 'sha512/224', 'sha512/256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'ssdeep', 'imphash', 'telfhash', 'impfuzzy', 'authentihash', 'vhash', 'pehash', 'tlsh', 'cdhash', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha224', 'filename|sha256', 'filename|sha384', 'filename|sha512', 'filename|sha512/224', 'filename|sha512/256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'filename|authentihash', 'filename|vhash', 'filename|ssdeep', 'filename|tlsh', 'filename|imphash', 'filename|pehash', 'malware-sample', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256', 'x509-fingerprint-md5'],
-        'network' => ['ip-src', 'ip-dst', 'ip-src|port', 'ip-dst|port', 'mac-address', 'mac-eui-64', 'hostname', 'hostname|port', 'domain', 'domain|ip', 'email-dst', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'bro', 'zeek',  'pattern-in-traffic', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256','ja3-fingerprint-md5', 'jarm-fingerprint', 'favicon-mmh3', 'hassh-md5', 'hasshserver-md5', 'community-id'],
+        'network' => ['ip-src', 'ip-dst', 'ip-src|port', 'ip-dst|port', 'mac-address', 'mac-eui-64', 'hostname', 'hostname|port', 'domain', 'domain|ip', 'email-dst', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'bro', 'zeek',  'pattern-in-traffic', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256','ja3-fingerprint-md5', 'jarm-fingerprint', 'favicon-mmh3', 'hassh-md5', 'hasshserver-md5', 'community-id', 'dom-hash'],
         'financial' => ['btc', 'xmr', 'iban', 'bic', 'bank-account-nr', 'aba-rtn', 'bin', 'cc-number', 'prtn', 'phone-number']
     ];
 
@@ -1148,7 +1148,7 @@ class Attribute extends AppModel
         }
         $temp = array();
         if (!empty($tagArray[1])) {
-            /* 
+            /*
              * If we didn't find the given negation tag, no need to use the -1 trick,
              * it is basically a hack to block the search from finding anything if no positive lookup was valid.
              * However, if none of the negated tags exist, there's nothing to filter here
@@ -1782,7 +1782,7 @@ class Attribute extends AppModel
      * @return array
      * @throws Exception
      */
-    public function fetchAttributes(array $user, array $options = [], &$result_count = false, $real_count = false)
+    public function fetchAttributes(array $user, array $options = [], &$result_count = false, $real_count = false, &$skiped_item_count = false)
     {
         $params = array(
             'conditions' => $this->buildConditions($user),
@@ -1888,8 +1888,13 @@ class Attribute extends AppModel
             $params['order'] = $this->findOrder(
                 $options['order'],
                 'Attribute',
-                ['id', 'event_id', 'object_id', 'type', 'category', 'value', 'distribution', 'timestamp', 'object_relation']
+                array(
+                    'Attribute' => array('id', 'event_id', 'object_id', 'type', 'category', 'value', 'distribution', 'timestamp', 'object_relation'),
+                    'Event' => array('publish_timestamp'),
+                )
             );
+        } else {
+            $params['order'] = [];
         }
         if (!isset($options['withAttachments'])) {
             $options['withAttachments'] = false;
@@ -1924,8 +1929,8 @@ class Attribute extends AppModel
         if (isset($options['deleted'])) {
             if ($options['deleted'] === "only") {
                 $options['deleted'] = 1;
+                $params['conditions']['AND']['Attribute.deleted'] = $options['deleted'];
             }
-            $params['conditions']['AND']['(Attribute.deleted + 0)'] = $options['deleted'];
         } elseif (!$user['Role']['perm_sync'] || !isset($options['deleted']) || !$options['deleted']) {
             $params['conditions']['AND']['Attribute.deleted'] = 0;
         }
@@ -1975,6 +1980,7 @@ class Attribute extends AppModel
         }
         $eventTags = []; // tag cache
         $attributes = [];
+        $skipped_items = 0;
         $index = $this->query("SHOW index from attributes where Key_name = 'deleted'");
         if (!empty($index)) {
             $params['ignoreIndexHint'] = 'deleted';
@@ -2013,6 +2019,7 @@ class Attribute extends AppModel
                     $attribute['Attribute']['RelatedAttribute'] = $this->Correlation->getRelatedAttributes($user, $sgids, $attribute['Attribute'], $attributeFields, true);
                 }
                 if ($options['enforceWarninglist'] && !$this->Warninglist->filterWarninglistAttribute($attribute['Attribute'])) {
+                    $skipped_items++;
                     continue;
                 }
                 if (!empty($options['includeEventTags'])) {
@@ -2026,6 +2033,7 @@ class Attribute extends AppModel
                 }
                 if ($proposals_block_attributes) {
                     if ($this->__blockAttributeViaProposal($attribute)) {
+                        $skipped_items++;
                         continue;
                     }
                     unset($attribute['ShadowAttribute']);
@@ -2050,6 +2058,7 @@ class Attribute extends AppModel
                             $decayed_flag = $decayed_flag && $decayResult['decayed'];
                         }
                         if ($decayed_flag) {
+                            $skipped_items++;
                             continue;
                         }
                     }
@@ -2070,6 +2079,9 @@ class Attribute extends AppModel
                 $params['page']++;
             }
         } while ($loop);
+        if (is_int($skiped_item_count)) {
+            $skiped_item_count += $skipped_items;
+        }
         return $attributes;
     }
 
@@ -3162,7 +3174,7 @@ class Attribute extends AppModel
      * @return array|TmpFileTool Array when $paramsOnly is true
      * @throws Exception
      */
-    public function restSearch(array $user, $returnFormat, $filters, $paramsOnly = false, $jobId = false, &$elementCounter = 0, &$renderView = false)
+    public function restSearch(array $user, $returnFormat, $filters, $paramsOnly = false, $jobId = false, &$elementCounter = 0, &$renderView = false, &$skippedElementsCounter = 0)
     {
         if (!isset($this->validFormats[$returnFormat][1])) {
             throw new NotFoundException('Invalid output format.');
@@ -3202,10 +3214,10 @@ class Attribute extends AppModel
         $subqueryElements = $this->Event->harvestSubqueryElements($filters);
         $filters = $this->Event->addFiltersFromSubqueryElements($filters, $subqueryElements, $user);
         $filters = $this->Event->addFiltersFromUserSettings($user, $filters);
-        $conditions = $this->buildFilterConditions($user, $filters, true);
+        $conditions = $this->buildFilterConditions($user, $filters, !$paramsOnly);
         $params = array(
             'conditions' => $conditions,
-            'fields' => array('Attribute.*', 'Event.org_id', 'Event.distribution'),
+            'fields' => array('Attribute.*', 'Event.org_id', 'Event.distribution', 'Event.publish_timestamp'),
             'withAttachments' => !empty($filters['withAttachments']) ? $filters['withAttachments'] : 0,
             'enforceWarninglist' => !empty($filters['enforceWarninglist']) ? $filters['enforceWarninglist'] : 0,
             'includeAllTags' => !empty($filters['includeAllTags']) ? $filters['includeAllTags'] : 0,
@@ -3258,7 +3270,10 @@ class Attribute extends AppModel
             $params['order'] = $this->findOrder(
                 $filters['order'],
                 'Attribute',
-                ['id', 'event_id', 'object_id', 'type', 'category', 'value', 'distribution', 'timestamp', 'object_relation']
+                array(
+                    'Attribute' => array('id', 'event_id', 'object_id', 'type', 'category', 'value', 'distribution', 'timestamp', 'object_relation'),
+                    'Event' => array('publish_timestamp'),
+                )
             );
         }
         if ($paramsOnly) {
@@ -3298,7 +3313,7 @@ class Attribute extends AppModel
             }
         }
         if (empty($exportTool->mock_query_only)) {
-            $elementCounter = $this->__iteratedFetch($user, $params, $loop, $tmpfile, $exportTool, $exportToolParams, $maxLimit);
+            $elementCounter = $this->__iteratedFetch($user, $params, $loop, $tmpfile, $exportTool, $exportToolParams, $maxLimit, $skippedElementsCounter);
         }
         $tmpfile->write($exportTool->footer($exportToolParams));
         return $tmpfile;
@@ -3314,12 +3329,11 @@ class Attribute extends AppModel
      * @return int Number of all attributes that matches given conditions
      * @throws Exception
      */
-    private function __iteratedFetch(array $user, array $params, $loop, TmpFileTool $tmpfile, $exportTool, array $exportToolParams, $maxLimit = null)
+    private function __iteratedFetch(array $user, array $params, $loop, TmpFileTool $tmpfile, $exportTool, array $exportToolParams, $maxLimit = null, &$skippedElementsCounter = 0)
     {
         $this->Allowedlist = ClassRegistry::init('Allowedlist');
         $separator = $exportTool->separator($exportToolParams);
         $elementCounter = 0;
-        $incrementTotalBy = $loop ? 0 : 1;
         $offset = ($params['limit'] * ($params['page'] - 1));
         if ($params['page'] > 1) {
             $params['offset'] = $offset;
@@ -3336,8 +3350,8 @@ class Attribute extends AppModel
                 $params['limit'] = $requestedLimit - $totalCount;
                 $loop = false;
             }
-            $params['order'] = 'Attribute.id asc';
-            $results = $this->fetchAttributes($user, $params, $elementCounter, false);
+            $incrementTotalBy = $loop ? 0 : 1;
+            $results = $this->fetchAttributes($user, $params, $elementCounter, false, $skippedElementsCounter);
 
             $resultCount = count($results);
             $totalCount = $totalCount + $elementCounter;
@@ -3350,9 +3364,8 @@ class Attribute extends AppModel
                 $results = $this->Sightingdb->attachToAttributes($results, $user);
             }
             $results = $this->Allowedlist->removeAllowedlistedFromArray($results, true);
-            $lastId = 0;
+            //$lastId = 0;
             foreach ($results as $attribute) {
-                $lastId = $attribute['Attribute']['id'];
                 $handlerResult = $exportTool->handler($attribute, $exportToolParams);
                 if ($handlerResult !== '') {
                     $tmpfile->writeWithSeparator($handlerResult, $separator);
@@ -3361,11 +3374,10 @@ class Attribute extends AppModel
             if ($resultCount < $params['limit']) {
                 $incrementTotalBy = 0;
                 if ($loop) {
-                    break; // do not continue if we received less results than limit
+                    break; // do not continue if we received fewer results than limit
                 }
             }
-            $params['conditions']['Attribute.id >'] = $lastId;
-            unset($params['offset']);
+            $params['offset'] = (empty($params['offset']) ? 0 : $params['offset']) + $params['limit'];
         } while ($loop);
         return $totalCount + $incrementTotalBy;
     }
@@ -3455,6 +3467,7 @@ class Attribute extends AppModel
                 'fields' => array('Attribute.id', 'Attribute.event_id', 'Attribute.type', 'Attribute.category', 'Attribute.comment', 'Attribute.to_ids', 'Attribute.value', 'Attribute.value' . $valueField),
                 'contain' => array('Event' => array('fields' => array('Event.id', 'Event.threat_level_id', 'Event.orgc_id', 'Event.uuid'))),
                 'enforceWarninglist' => $enforceWarninglist,
+                'allow_proposal_blocking' => true,
                 'flatten' => 1
             )
         );
@@ -3493,7 +3506,7 @@ class Attribute extends AppModel
                             )
                         );
                     }
-                    
+
                 } else {
                     $conditions['AND'][] = array(
                         'OR' => array(
@@ -3668,7 +3681,7 @@ class Attribute extends AppModel
             ),
             'Network activity' => array(
                 'desc' => __('Information about network traffic generated by the malware'),
-                'types' => array('ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'port', 'hostname', 'domain', 'domain|ip', 'mac-address', 'mac-eui-64', 'email', 'email-dst', 'email-src', 'eppn', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'pattern-in-file', 'filename-pattern','stix2-pattern', 'pattern-in-traffic', 'attachment', 'comment', 'text', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'other', 'hex', 'cookie', 'hostname|port', 'bro', 'zeek', 'anonymised', 'community-id', 'email-subject', 'favicon-mmh3', 'dkim', 'dkim-signature', 'ssh-fingerprint')
+                'types' => array('ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'port', 'hostname', 'domain', 'domain|ip', 'mac-address', 'mac-eui-64', 'email', 'email-dst', 'email-src', 'eppn', 'url', 'uri', 'user-agent', 'http-method', 'AS', 'snort', 'pattern-in-file', 'filename-pattern','stix2-pattern', 'pattern-in-traffic', 'attachment', 'comment', 'text', 'x509-fingerprint-md5', 'x509-fingerprint-sha1', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'other', 'hex', 'cookie', 'hostname|port', 'bro', 'zeek', 'anonymised', 'community-id', 'email-subject', 'favicon-mmh3', 'dkim', 'dkim-signature', 'ssh-fingerprint', 'dom-hash')
             ),
             'Payload type' => array(
                 'desc' => __('Information about the final payload(s)'),
@@ -3682,7 +3695,7 @@ class Attribute extends AppModel
             'External analysis' => array(
                 'desc' => __('Any other result from additional analysis of the malware like tools output'),
                 'formdesc' => __('Any other result from additional analysis of the malware like tools output Examples: pdf-parser output, automated sandbox analysis, reverse engineering report.'),
-                'types' => array('md5', 'sha1', 'sha256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'mac-address', 'mac-eui-64', 'hostname', 'domain', 'domain|ip', 'url', 'user-agent', 'regkey', 'regkey|value', 'AS', 'snort', 'bro', 'zeek', 'pattern-in-file', 'pattern-in-traffic', 'pattern-in-memory', 'filename-pattern','vulnerability', 'cpe', 'weakness', 'attachment', 'malware-sample', 'link', 'comment', 'text', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'github-repository', 'other', 'cortex', 'anonymised', 'community-id')
+                'types' => array('md5', 'sha1', 'sha256', 'sha3-224', 'sha3-256', 'sha3-384', 'sha3-512', 'filename', 'filename|md5', 'filename|sha1', 'filename|sha256', 'filename|sha3-224', 'filename|sha3-256', 'filename|sha3-384', 'filename|sha3-512', 'ip-src', 'ip-dst', 'ip-dst|port', 'ip-src|port', 'mac-address', 'mac-eui-64', 'hostname', 'domain', 'domain|ip', 'url', 'user-agent', 'regkey', 'regkey|value', 'AS', 'snort', 'bro', 'zeek', 'pattern-in-file', 'pattern-in-traffic', 'pattern-in-memory', 'filename-pattern','vulnerability', 'cpe', 'weakness', 'attachment', 'malware-sample', 'link', 'comment', 'text', 'x509-fingerprint-sha1', 'x509-fingerprint-md5', 'x509-fingerprint-sha256', 'ja3-fingerprint-md5', 'jarm-fingerprint', 'hassh-md5', 'hasshserver-md5', 'github-repository', 'other', 'cortex', 'anonymised', 'community-id', 'dom-hash')
             ),
             'Financial fraud' => array(
                 'desc' => __('Financial Fraud indicators'),
@@ -3753,7 +3766,8 @@ class Attribute extends AppModel
             'snort' => array('desc' => __('An IDS rule in Snort rule-format'), 'formdesc' => __("An IDS rule in Snort rule-format. This rule will be automatically rewritten in the NIDS exports."), 'default_category' => 'Network activity', 'to_ids' => 1),
             'bro' => array('desc' => __('An NIDS rule in the Bro rule-format'), 'formdesc' => __("An NIDS rule in the Bro rule-format."), 'default_category' => 'Network activity', 'to_ids' => 1),
             'zeek' => array('desc' => __('An NIDS rule in the Zeek rule-format'), 'formdesc' => __("An NIDS rule in the Zeek rule-format."), 'default_category' => 'Network activity', 'to_ids' => 1),
-            'community-id' => array('desc' => __('A community ID flow hashing algorithm to map multiple traffic monitors into common flow id'), 'formdesc' => __("a community ID flow hashing algorithm to map multiple traffic monitors into common flow id"), 'default_category' => 'Network activity', 'to_ids' => 1),
+	    'community-id' => array('desc' => __('A community ID flow hashing algorithm to map multiple traffic monitors into common flow id'), 'formdesc' => __("a community ID flow hashing algorithm to map multiple traffic monitors into common flow id"), 'default_category' => 'Network activity', 'to_ids' => 1),
+	    'dom-hash' => array('desc' => __('A dom-hash algorithm is a structural fingerprint of an HTML Document Object Model where all tag names are contained in a single string separated by a pipe. The truncated SHA252 value by the first 32-character serves as fingerprint.'), 'formdesc' => __("A dom-hash value is a structural fingerprint to uniquely identify an HTML Document Object Model."), 'default_category' => 'Network activity', 'to_ids' => 1),
             'pattern-in-file' => array('desc' => __('Pattern in file that identifies the malware'), 'default_category' => 'Payload installation', 'to_ids' => 1),
             'pattern-in-traffic' => array('desc' => __('Pattern in network traffic that identifies the malware'), 'default_category' => 'Network activity', 'to_ids' => 1),
             'pattern-in-memory' => array('desc' => __('Pattern in memory dump that identifies the malware'), 'default_category' => 'Payload installation', 'to_ids' => 1),
